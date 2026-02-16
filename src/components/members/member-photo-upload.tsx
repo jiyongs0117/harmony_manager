@@ -39,7 +39,8 @@ async function resizeImage(file: File, maxWidth = 800): Promise<Blob> {
 export function MemberPhotoUpload({ currentUrl, memberName, onUpload }: MemberPhotoUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentUrl)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const albumRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -75,10 +76,7 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload }: MemberPh
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
+      <div
         className={cn(
           'w-24 h-24 rounded-full overflow-hidden border-2 border-dashed border-border flex items-center justify-center',
           uploading && 'opacity-50'
@@ -91,17 +89,37 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload }: MemberPh
             {memberName ? getInitials(memberName) : '+'}
           </span>
         )}
-      </button>
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        className="text-xs text-primary font-medium"
-      >
-        {uploading ? '업로드 중...' : '사진 변경'}
-      </button>
+      </div>
+      {uploading ? (
+        <span className="text-xs text-muted">업로드 중...</span>
+      ) : (
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            className="text-xs text-primary font-medium"
+          >
+            촬영
+          </button>
+          <button
+            type="button"
+            onClick={() => albumRef.current?.click()}
+            className="text-xs text-primary font-medium"
+          >
+            앨범
+          </button>
+        </div>
+      )}
       <input
-        ref={inputRef}
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+      <input
+        ref={albumRef}
         type="file"
         accept="image/*"
         onChange={handleFileChange}
