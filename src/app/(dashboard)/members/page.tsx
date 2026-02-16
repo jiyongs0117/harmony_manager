@@ -44,9 +44,14 @@ export default async function MembersPage({ searchParams }: Props) {
       <PageHeader
         title="단원 관리"
         action={
-          <Link href="/members/new">
-            <Button size="sm">+ 등록</Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/members/upload">
+              <Button size="sm" variant="secondary">엑셀 업로드</Button>
+            </Link>
+            <Link href="/members/new">
+              <Button size="sm">+ 등록</Button>
+            </Link>
+          </div>
         }
       />
 
