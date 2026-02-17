@@ -29,18 +29,22 @@ export function MemberForm({ member, mode }: MemberFormProps) {
     setIsSubmitting(true)
 
     const form = e.currentTarget
-    const formData: MemberFormData = {
-      name: (form.elements.namedItem('name') as HTMLInputElement).value,
-      group_number: (form.elements.namedItem('group_number') as HTMLInputElement).value || null,
-      date_of_birth: (form.elements.namedItem('date_of_birth') as HTMLInputElement).value || null,
-      choir_join_date: (form.elements.namedItem('choir_join_date') as HTMLInputElement).value || null,
-      church_registration_date: (form.elements.namedItem('church_registration_date') as HTMLInputElement).value || null,
-      church_position: (form.elements.namedItem('church_position') as HTMLSelectElement).value as MemberFormData['church_position'] || null,
-      mission_association_name: (form.elements.namedItem('mission_association_name') as HTMLInputElement).value || null,
-      mission_association_position: (form.elements.namedItem('mission_association_position') as HTMLInputElement).value || null,
-      gender: (form.elements.namedItem('gender') as HTMLSelectElement).value as MemberFormData['gender'] || null,
-      address: (form.elements.namedItem('address') as HTMLInputElement).value || null,
-      prayer_request: (form.elements.namedItem('prayer_request') as HTMLTextAreaElement).value || null,
+    const getValue = (fieldName: string) =>
+      (form.elements.namedItem(fieldName) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)?.value ?? ''
+
+    const formData = {
+      name: getValue('name'),
+      group_number: getValue('group_number'),
+      date_of_birth: getValue('date_of_birth'),
+      choir_join_date: getValue('choir_join_date'),
+      church_registration_date: getValue('church_registration_date'),
+      church_position: getValue('church_position'),
+      mission_association_name: getValue('mission_association_name'),
+      mission_association_position: getValue('mission_association_position'),
+      gender: getValue('gender'),
+      address: getValue('address'),
+      phone_number: getValue('phone_number'),
+      prayer_request: getValue('prayer_request'),
       photo_url: photoUrl,
     }
 
@@ -156,6 +160,14 @@ export function MemberForm({ member, mode }: MemberFormProps) {
       {/* 연락처 */}
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">연락처</h3>
+        <Input
+          id="phone_number"
+          name="phone_number"
+          label="휴대폰번호"
+          type="tel"
+          defaultValue={member?.phone_number ?? ''}
+          placeholder="010-0000-0000"
+        />
         <Input
           id="address"
           name="address"

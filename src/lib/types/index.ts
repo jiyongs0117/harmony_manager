@@ -11,6 +11,7 @@ export interface Leader {
   name: string
   department: Department
   part: Part
+  power: boolean
   created_at: string
   updated_at: string
 }
@@ -29,6 +30,7 @@ export interface Member {
   mission_association_position: string | null
   gender: Gender | null
   address: string | null
+  phone_number: string | null
   prayer_request: string | null
   photo_url: string | null
   is_active: boolean
