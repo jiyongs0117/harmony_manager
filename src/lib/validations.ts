@@ -10,7 +10,7 @@ export const memberSchema = z.object({
   date_of_birth: emptyToNull,
   choir_join_date: emptyToNull,
   church_registration_date: emptyToNull,
-  church_position: enumOrNull(['장로', '안수집사', '집사', '평신도']),
+  church_position: emptyToNull,
   mission_association_name: emptyToNull,
   mission_association_position: emptyToNull,
   gender: enumOrNull(['남', '여']),

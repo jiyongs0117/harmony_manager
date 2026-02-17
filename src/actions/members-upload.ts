@@ -19,7 +19,6 @@ interface BulkMemberRow {
 }
 
 const VALID_GENDERS = ['남', '여']
-const VALID_POSITIONS = ['장로', '안수집사', '집사', '평신도']
 
 function validateRow(row: BulkMemberRow, index: number): string | null {
   if (!row.name || row.name.trim().length === 0) {
@@ -27,9 +26,6 @@ function validateRow(row: BulkMemberRow, index: number): string | null {
   }
   if (row.gender && !VALID_GENDERS.includes(row.gender)) {
     return `${index + 1}행: 성별은 '남' 또는 '여'만 가능합니다 (입력값: ${row.gender})`
-  }
-  if (row.church_position && !VALID_POSITIONS.includes(row.church_position)) {
-    return `${index + 1}행: 교회직분은 '장로', '안수집사', '집사', '평신도'만 가능합니다 (입력값: ${row.church_position})`
   }
   return null
 }
