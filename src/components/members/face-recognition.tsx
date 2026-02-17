@@ -1,0 +1,250 @@
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useFaceRecognition, type MemberWithPhoto } from '@/hooks/use-face-recognition'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { toast } from '@/components/ui/toast'
+import { cn, getInitials } from '@/lib/utils'
+
+interface FaceRecognitionProps {
+  members: MemberWithPhoto[]
+}
+
+export function FaceRecognition({ members }: FaceRecognitionProps) {
+  const router = useRouter()
+  const {
+    status,
+    progress,
+    skippedMembers,
+    matches,
+    videoRef,
+    canvasRef,
+    startCamera,
+    stopCamera,
+    flipCamera,
+    errorMessage,
+  } = useFaceRecognition(members)
+
+  // Auto-start camera when ready
+  useEffect(() => {
+    if (status === 'ready') {
+      startCamera('environment')
+    }
+  }, [status, startCamera])
+
+  // Notify skipped members
+  useEffect(() => {
+    if (status === 'ready' && skippedMembers.length > 0) {
+      toast(
+        `${members.length}명 중 ${members.length - skippedMembers.length}명 등록 완료 (${skippedMembers.length}명 얼굴 미감지)`,
+        'info'
+      )
+    }
+  }, [status, skippedMembers, members.length])
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => stopCamera()
+  }, [stopCamera])
+
+  const bestMatch = matches.length > 0
+    ? matches.reduce((best, m) => (m.distance < best.distance ? m : best), matches[0])
+    : null
+
+  return (
+    <div className="flex flex-col h-[100dvh] bg-black">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-sm z-10">
+        <button
+          onClick={() => {
+            stopCamera()
+            router.back()
+          }}
+          className="text-white text-sm font-medium"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <h1 className="text-white font-semibold">얼굴 인식</h1>
+        <button
+          onClick={flipCamera}
+          className="text-white"
+          disabled={status !== 'detecting'}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+            <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
+            <path d="m14 9 3-3 3 3" />
+            <path d="m10 15-3 3-3-3" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Main content area */}
+      <div className="flex-1 relative overflow-hidden">
+        {/* Loading models */}
+        {status === 'loading-models' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black">
+            <LoadingSpinner size="lg" className="text-white" />
+            <p className="text-white text-sm">얼굴 인식 모델 로딩 중...</p>
+          </div>
+        )}
+
+        {/* Building descriptors */}
+        {status === 'building-descriptors' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black px-8">
+            <p className="text-white text-sm">
+              단원 사진 분석 중... ({progress.current}/{progress.total})
+            </p>
+            <div className="w-full max-w-xs bg-white/20 rounded-full h-2">
+              <div
+                className="bg-primary h-2 rounded-full transition-all duration-300"
+                style={{
+                  width: progress.total > 0
+                    ? `${(progress.current / progress.total) * 100}%`
+                    : '0%',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Error state */}
+        {status === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black px-8">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <p className="text-white text-sm text-center">{errorMessage}</p>
+            <Button
+              size="sm"
+              onClick={() => window.location.reload()}
+            >
+              다시 시도
+            </Button>
+          </div>
+        )}
+
+        {/* No members with photos */}
+        {status === 'ready' && members.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black px-8">
+            <p className="text-white text-sm text-center">
+              사진이 등록된 단원이 없습니다.
+              <br />
+              단원 등록 시 사진을 추가해주세요.
+            </p>
+            <Button size="sm" onClick={() => router.push('/members')}>
+              단원 관리로 이동
+            </Button>
+          </div>
+        )}
+
+        {/* Camera view */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={cn(
+            'w-full h-full object-cover',
+            (status !== 'detecting' && status !== 'ready') && 'hidden'
+          )}
+        />
+        <canvas
+          ref={canvasRef}
+          className="absolute top-0 left-0 w-full h-full pointer-events-none"
+        />
+
+        {/* Hint overlay */}
+        {(status === 'detecting' || status === 'ready') && matches.length === 0 && (
+          <div className="absolute bottom-24 left-0 right-0 flex justify-center">
+            <div className="bg-black/60 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full animate-pulse">
+              얼굴을 카메라에 비춰주세요
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Match result card */}
+      {bestMatch && (
+        <div className="bg-white safe-bottom">
+          <button
+            onClick={() => {
+              stopCamera()
+              router.push(`/members/${bestMatch.member.id}`)
+            }}
+            className="w-full px-4 py-4 flex items-center gap-3 active:bg-gray-50 transition-colors"
+          >
+            <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+              {bestMatch.member.photo_url ? (
+                <img
+                  src={bestMatch.member.photo_url}
+                  alt={bestMatch.member.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-lg font-semibold text-muted">
+                  {getInitials(bestMatch.member.name)}
+                </span>
+              )}
+            </div>
+            <div className="flex-1 text-left">
+              <p className="font-semibold text-base">{bestMatch.member.name}</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <Badge>{bestMatch.member.part}</Badge>
+                <Badge>{bestMatch.member.department}</Badge>
+                {bestMatch.member.group_number && (
+                  <span className="text-xs text-muted">{bestMatch.member.group_number}조</span>
+                )}
+              </div>
+            </div>
+            <div className="flex-shrink-0 text-muted">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </div>
+          </button>
+
+          {/* Multiple matches */}
+          {matches.length > 1 && (
+            <div className="px-4 pb-3 flex gap-2 overflow-x-auto">
+              {matches
+                .filter((m) => m !== bestMatch)
+                .map((match) => (
+                  <button
+                    key={match.member.id}
+                    onClick={() => {
+                      stopCamera()
+                      router.push(`/members/${match.member.id}`)
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg flex-shrink-0 active:bg-gray-100"
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                      {match.member.photo_url ? (
+                        <img
+                          src={match.member.photo_url}
+                          alt={match.member.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs font-semibold text-muted">
+                          {getInitials(match.member.name)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium">{match.member.name}</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
