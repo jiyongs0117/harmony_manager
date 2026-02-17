@@ -14,6 +14,7 @@ interface BulkMemberRow {
   mission_association_name?: string | null
   mission_association_position?: string | null
   address?: string | null
+  phone_number?: string | null
   prayer_request?: string | null
 }
 
@@ -76,6 +77,7 @@ export async function createMembersBulk(rows: BulkMemberRow[]) {
     mission_association_name: row.mission_association_name || null,
     mission_association_position: row.mission_association_position || null,
     address: row.address || null,
+    phone_number: row.phone_number || null,
     prayer_request: row.prayer_request || null,
     department: leader.department,
     part: leader.part,

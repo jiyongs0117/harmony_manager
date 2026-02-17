@@ -18,6 +18,7 @@ interface ParsedRow {
   mission_association_name: string | null
   mission_association_position: string | null
   address: string | null
+  phone_number: string | null
   prayer_request: string | null
 }
 
@@ -39,6 +40,10 @@ const COLUMN_MAP: Record<string, keyof ParsedRow> = {
   '선교회 직분': 'mission_association_position',
   '선교회직분': 'mission_association_position',
   '주소': 'address',
+  '휴대폰번호': 'phone_number',
+  '휴대폰': 'phone_number',
+  '전화번호': 'phone_number',
+  '연락처': 'phone_number',
   '기도제목': 'prayer_request',
 }
 
@@ -109,6 +114,7 @@ function parseExcelData(data: ArrayBuffer): { rows: ParsedRow[]; error?: string 
           mission_association_name: null,
           mission_association_position: null,
           address: null,
+          phone_number: null,
           prayer_request: null,
         }
 
@@ -137,7 +143,7 @@ const PREVIEW_COLUMNS = [
   { key: 'name', label: '이름' },
   { key: 'gender', label: '성별' },
   { key: 'group_number', label: '조' },
-  { key: 'date_of_birth', label: '생년월일' },
+  { key: 'phone_number', label: '휴대폰번호' },
   { key: 'church_position', label: '직분' },
 ] as const
 
@@ -233,7 +239,7 @@ export function MemberExcelUpload() {
           첫 번째 행에 다음 헤더를 사용해주세요:
         </p>
         <p className="text-xs text-blue-600 mt-1">
-          이름(필수), 성별, 조, 생년월일, 직분, 가입일, 등록일, 선교회, 선교회 직분, 주소, 기도제목
+          이름(필수), 성별, 조, 생년월일, 직분, 휴대폰번호, 가입일, 등록일, 선교회, 선교회 직분, 주소, 기도제목
         </p>
       </div>
 
