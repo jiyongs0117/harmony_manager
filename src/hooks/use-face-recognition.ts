@@ -237,13 +237,15 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
                   ctx.lineWidth = 3
                   ctx.strokeRect(box.x, box.y, box.width, box.height)
 
+                  const label = [member.part, member.group_number ? `${member.group_number}` : '', member.name].filter(Boolean).join(' ')
+
                   ctx.fillStyle = '#22c55e'
-                  const textWidth = ctx.measureText(member.name).width
+                  ctx.font = '14px sans-serif'
+                  const textWidth = ctx.measureText(label).width
                   ctx.fillRect(box.x, box.y - 24, textWidth + 16, 24)
 
                   ctx.fillStyle = '#ffffff'
-                  ctx.font = '14px sans-serif'
-                  ctx.fillText(member.name, box.x + 8, box.y - 7)
+                  ctx.fillText(label, box.x + 8, box.y - 7)
                 }
               }
             } else {
