@@ -1,8 +1,6 @@
 import { z } from 'zod'
 
 const emptyToNull = z.preprocess((val) => (val === '' ? null : val), z.string().nullable().optional())
-const enumOrNull = <T extends [string, ...string[]]>(values: T) =>
-  z.preprocess((val) => (val === '' ? null : val), z.enum(values).nullable().optional())
 
 export const memberSchema = z.object({
   name: z.string().min(1, '이름을 입력해주세요'),
@@ -13,7 +11,7 @@ export const memberSchema = z.object({
   church_position: emptyToNull,
   mission_association_name: emptyToNull,
   mission_association_position: emptyToNull,
-  gender: enumOrNull(['남', '여']),
+  gender: emptyToNull,
   address: emptyToNull,
   phone_number: emptyToNull,
   prayer_request: emptyToNull,

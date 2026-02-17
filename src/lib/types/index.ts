@@ -1,7 +1,7 @@
 export type Department = '1부' | '2부' | '3부' | '4부' | '5부'
 export type Part = '소프라노' | '알토' | '테너' | '베이스'
-export type ChurchPosition = '장로' | '안수집사' | '집사' | '평신도'
-export type Gender = '남' | '여'
+export type ChurchPosition = string
+export type Gender = string
 export type AttendanceStatus = '출석' | '결석' | '사전불참'
 
 export interface Leader {
@@ -25,10 +25,10 @@ export interface Member {
   date_of_birth: string | null
   choir_join_date: string | null
   church_registration_date: string | null
-  church_position: ChurchPosition | null
+  church_position: string | null
   mission_association_name: string | null
   mission_association_position: string | null
-  gender: Gender | null
+  gender: string | null
   address: string | null
   phone_number: string | null
   prayer_request: string | null

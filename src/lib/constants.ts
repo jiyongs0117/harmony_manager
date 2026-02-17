@@ -1,12 +1,12 @@
-import type { Department, Part, ChurchPosition, Gender, AttendanceStatus } from '@/lib/types'
+import type { Department, Part, AttendanceStatus } from '@/lib/types'
 
 export const DEPARTMENTS: Department[] = ['1부', '2부', '3부', '4부', '5부']
 
 export const PARTS: Part[] = ['소프라노', '알토', '테너', '베이스']
 
-export const CHURCH_POSITIONS: ChurchPosition[] = ['장로', '안수집사', '집사', '평신도']
+export const CHURCH_POSITIONS: string[] = ['장로', '안수집사', '집사', '평신도']
 
-export const GENDERS: Gender[] = ['남', '여']
+export const GENDERS: string[] = ['남', '여']
 
 export const ATTENDANCE_STATUSES: AttendanceStatus[] = ['출석', '결석', '사전불참']
 
