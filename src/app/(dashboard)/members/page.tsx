@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { PageHeader } from '@/components/layout/page-header'
-import { MemberCard } from '@/components/members/member-card'
+import { MemberList } from '@/components/members/member-card'
 import { MemberFilters } from '@/components/members/member-filters'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,7 @@ export default async function MembersPage({ searchParams }: Props) {
   const params = await searchParams
   const supabase = await createClient()
 
-  let query = supabase.from('members').select('*').order('name')
+  let query = supabase.from('members').select('*').order('department').order('part').order('group_number').order('name')
 
   if (params.search) {
     query = query.ilike('name', `%${params.search}%`)
@@ -65,9 +65,7 @@ export default async function MembersPage({ searchParams }: Props) {
           <div className="px-4 py-2">
             <span className="text-xs text-muted">{members.length}명</span>
           </div>
-          {(members as Member[]).map((member) => (
-            <MemberCard key={member.id} member={member} />
-          ))}
+          <MemberList members={members as Member[]} />
         </div>
       ) : (
         <EmptyState

@@ -1,43 +1,59 @@
-import Link from 'next/link'
+'use client'
+
+import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { getInitials } from '@/lib/utils'
 import type { Member } from '@/lib/types'
 
-interface MemberCardProps {
-  member: Member
+interface MemberListProps {
+  members: Member[]
 }
 
-export function MemberCard({ member }: MemberCardProps) {
+export function MemberList({ members }: MemberListProps) {
+  const router = useRouter()
+
   return (
-    <Link href={`/members/${member.id}`}>
-      <div className="flex items-center gap-3 px-4 py-3 bg-card border-b border-border active:bg-gray-50 transition-colors">
-        <div className="w-10 h-10 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0 overflow-hidden">
-          {member.photo_url ? (
-            <img src={member.photo_url} alt={member.name} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-sm font-semibold text-primary">
-              {getInitials(member.name)}
-            </span>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-foreground truncate">{member.name}</span>
-            {!member.is_active && <Badge variant="danger">비활동</Badge>}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            {member.group_number && (
-              <span className="text-xs text-muted">{member.group_number}</span>
-            )}
-            {member.church_position && (
-              <span className="text-xs text-muted">{member.church_position}</span>
-            )}
-          </div>
-        </div>
-        <svg className="w-4 h-4 text-muted flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+    <div className="border border-border rounded-lg overflow-hidden mx-4">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-border">
+              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">부서</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">파트</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">조</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">이름</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">직분</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((member) => (
+              <tr
+                key={member.id}
+                onClick={() => router.push(`/members/${member.id}`)}
+                className="border-b border-border last:border-0 hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer"
+              >
+                <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.department}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.part}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.group_number || '-'}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap font-medium text-foreground">
+                  <span className="flex items-center gap-2">
+                    <span className="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      {member.photo_url ? (
+                        <img src={member.photo_url} alt={member.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xs font-semibold text-primary">{getInitials(member.name)}</span>
+                      )}
+                    </span>
+                    {member.name}
+                    {!member.is_active && <Badge variant="danger">비활동</Badge>}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.church_position || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    </Link>
+    </div>
   )
 }
