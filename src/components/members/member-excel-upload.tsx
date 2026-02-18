@@ -12,9 +12,12 @@ interface ParsedRow {
   gender: string | null
   group_number: string | null
   date_of_birth: string | null
-  choir_join_date: string | null
-  church_registration_date: string | null
+  choir_join_year: string | null
+  church_registration_year: string | null
   church_position: string | null
+  choir_role: string | null
+  district: string | null
+  area: string | null
   mission_association_name: string | null
   mission_association_position: string | null
   address: string | null
@@ -28,12 +31,18 @@ const COLUMN_MAP: Record<string, keyof ParsedRow> = {
   '조': 'group_number',
   '조번호': 'group_number',
   '생년월일': 'date_of_birth',
-  '성가대 가입일': 'choir_join_date',
-  '가입일': 'choir_join_date',
-  '등록일': 'church_registration_date',
-  '교회 등록일': 'church_registration_date',
+  '성가대 가입년도': 'choir_join_year',
+  '가입년도': 'choir_join_year',
+  '가입연도': 'choir_join_year',
+  '교회 등록년도': 'church_registration_year',
+  '등록년도': 'church_registration_year',
+  '등록연도': 'church_registration_year',
   '직분': 'church_position',
   '교회직분': 'church_position',
+  '성가대직책': 'choir_role',
+  '성가대 직책': 'choir_role',
+  '교구': 'district',
+  '구역': 'area',
   '선교회': 'mission_association_name',
   '선교회 이름': 'mission_association_name',
   '선교회명': 'mission_association_name',
@@ -45,28 +54,6 @@ const COLUMN_MAP: Record<string, keyof ParsedRow> = {
   '전화번호': 'phone_number',
   '연락처': 'phone_number',
   '기도제목': 'prayer_request',
-}
-
-function excelDateToString(value: unknown): string | null {
-  if (value === null || value === undefined || value === '') return null
-  // Excel serial date number
-  if (typeof value === 'number') {
-    const date = XLSX.SSF.parse_date_code(value)
-    if (date) {
-      const y = date.y
-      const m = String(date.m).padStart(2, '0')
-      const d = String(date.d).padStart(2, '0')
-      return `${y}-${m}-${d}`
-    }
-  }
-  const str = String(value).trim()
-  if (!str) return null
-  // Try to parse common date formats: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
-  const match = str.match(/^(\d{4})[-/.년](\d{1,2})[-/.월](\d{1,2})일?$/)
-  if (match) {
-    return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
-  }
-  return str
 }
 
 function cellToString(value: unknown): string | null {
@@ -99,8 +86,6 @@ function parseExcelData(data: ArrayBuffer): { rows: ParsedRow[]; error?: string 
       return { rows: [], error: "'이름' 열을 찾을 수 없습니다. 엑셀 파일의 첫 번째 행에 '이름' 헤더가 필요합니다." }
     }
 
-    const DATE_FIELDS: (keyof ParsedRow)[] = ['date_of_birth', 'choir_join_date', 'church_registration_date']
-
     const rows: ParsedRow[] = rawRows
       .map((raw) => {
         const row: ParsedRow = {
@@ -108,9 +93,12 @@ function parseExcelData(data: ArrayBuffer): { rows: ParsedRow[]; error?: string 
           gender: null,
           group_number: null,
           date_of_birth: null,
-          choir_join_date: null,
-          church_registration_date: null,
+          choir_join_year: null,
+          church_registration_year: null,
           church_position: null,
+          choir_role: null,
+          district: null,
+          area: null,
           mission_association_name: null,
           mission_association_position: null,
           address: null,
@@ -123,9 +111,8 @@ function parseExcelData(data: ArrayBuffer): { rows: ParsedRow[]; error?: string 
           if (field === 'name') {
             row.name = cellToString(value) ?? ''
           } else {
-            const parsed = DATE_FIELDS.includes(field) ? excelDateToString(value) : cellToString(value)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ;(row as any)[field] = parsed
+            ;(row as any)[field] = cellToString(value)
           }
         }
 
@@ -239,7 +226,7 @@ export function MemberExcelUpload() {
           첫 번째 행에 다음 헤더를 사용해주세요:
         </p>
         <p className="text-xs text-blue-600 mt-1">
-          이름(필수), 성별, 조, 생년월일, 직분, 휴대폰번호, 가입일, 등록일, 선교회, 선교회 직분, 주소, 기도제목
+          이름(필수), 성별, 조, 생년월일, 직분, 교구, 구역, 성가대직책, 가입년도, 등록년도, 휴대폰번호, 선교회, 선교회 직분, 주소, 기도제목
         </p>
       </div>
 

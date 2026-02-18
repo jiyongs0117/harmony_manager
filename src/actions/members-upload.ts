@@ -8,9 +8,12 @@ interface BulkMemberRow {
   gender?: string | null
   group_number?: string | null
   date_of_birth?: string | null
-  choir_join_date?: string | null
-  church_registration_date?: string | null
+  choir_join_year?: string | null
+  church_registration_year?: string | null
   church_position?: string | null
+  choir_role?: string | null
+  district?: string | null
+  area?: string | null
   mission_association_name?: string | null
   mission_association_position?: string | null
   address?: string | null
@@ -67,9 +70,12 @@ export async function createMembersBulk(rows: BulkMemberRow[]) {
     gender: row.gender || null,
     group_number: row.group_number || null,
     date_of_birth: row.date_of_birth || null,
-    choir_join_date: row.choir_join_date || null,
-    church_registration_date: row.church_registration_date || null,
+    choir_join_year: row.choir_join_year || null,
+    church_registration_year: row.church_registration_year || null,
     church_position: row.church_position || null,
+    choir_role: row.choir_role || null,
+    district: row.district || null,
+    area: row.area || null,
     mission_association_name: row.mission_association_name || null,
     mission_association_position: row.mission_association_position || null,
     address: row.address || null,

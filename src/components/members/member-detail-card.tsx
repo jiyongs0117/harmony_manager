@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Card } from '@/components/ui/card'
 import { toast } from '@/components/ui/toast'
-import { deleteMember, toggleMemberActive } from '@/actions/members'
-import { formatDate, getInitials } from '@/lib/utils'
+import { deleteMember, updateMemberStatus } from '@/actions/members'
+import { getInitials } from '@/lib/utils'
+import { MEMBER_STATUSES } from '@/lib/constants'
 import type { Member } from '@/lib/types'
 
 interface MemberDetailCardProps {
@@ -34,15 +35,17 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
     }
   }
 
-  const handleToggleActive = async () => {
-    const result = await toggleMemberActive(member.id, !member.is_active)
+  const handleStatusChange = async (newStatus: string) => {
+    const result = await updateMemberStatus(member.id, newStatus)
     if (result?.error) {
       toast(result.error, 'error')
     } else {
-      toast(member.is_active ? '비활동으로 변경되었습니다' : '활동으로 변경되었습니다')
+      toast(`상태가 '${newStatus}'(으)로 변경되었습니다`)
       router.refresh()
     }
   }
+
+  const currentStatus = member.status || '활동'
 
   const InfoRow = ({ label, value }: { label: string; value: string | null | undefined }) => (
     <div className="flex justify-between py-2 border-b border-border last:border-0">
@@ -66,8 +69,8 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
         </div>
         <h2 className="text-lg font-semibold">{member.name}</h2>
         <div className="flex items-center gap-2 mt-1">
-          <Badge variant={member.is_active ? 'success' : 'danger'}>
-            {member.is_active ? '활동' : '비활동'}
+          <Badge variant={currentStatus === '활동' ? 'success' : 'danger'}>
+            {currentStatus}
           </Badge>
           {member.group_number && <Badge>{member.group_number}</Badge>}
         </div>
@@ -77,7 +80,7 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
       <Card>
         <h3 className="text-sm font-semibold mb-2">기본 정보</h3>
         <InfoRow label="성별" value={member.gender} />
-        <InfoRow label="생년월일" value={formatDate(member.date_of_birth)} />
+        <InfoRow label="생년월일" value={member.date_of_birth} />
         <InfoRow label="휴대폰번호" value={member.phone_number} />
         <InfoRow label="주소" value={member.address} />
       </Card>
@@ -86,8 +89,11 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
       <Card>
         <h3 className="text-sm font-semibold mb-2">교회 정보</h3>
         <InfoRow label="교회 직분" value={member.church_position} />
-        <InfoRow label="성가대 가입일" value={formatDate(member.choir_join_date)} />
-        <InfoRow label="교회 등록일" value={formatDate(member.church_registration_date)} />
+        <InfoRow label="교구" value={member.district} />
+        <InfoRow label="구역" value={member.area} />
+        <InfoRow label="성가대 가입년도" value={member.choir_join_year} />
+        <InfoRow label="교회 등록년도" value={member.church_registration_year} />
+        <InfoRow label="성가대 직책" value={member.choir_role} />
         <InfoRow label="소속 선교회" value={member.mission_association_name} />
         <InfoRow label="선교회 직분" value={member.mission_association_position} />
       </Card>
@@ -105,9 +111,13 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
         <Link href={`/members/${member.id}/edit`} className="block">
           <Button variant="primary" className="w-full">수정</Button>
         </Link>
-        <Button variant="secondary" className="w-full" onClick={handleToggleActive}>
-          {member.is_active ? '비활동으로 변경' : '활동으로 변경'}
-        </Button>
+        <div className="grid grid-cols-3 gap-2">
+          {MEMBER_STATUSES.filter((s) => s !== currentStatus).map((s) => (
+            <Button key={s} variant="secondary" size="sm" onClick={() => handleStatusChange(s)}>
+              {s}
+            </Button>
+          ))}
+        </div>
         <Button variant="danger" className="w-full" onClick={() => setShowDeleteDialog(true)}>
           삭제
         </Button>

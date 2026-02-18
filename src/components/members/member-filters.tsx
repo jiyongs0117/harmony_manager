@@ -54,15 +54,17 @@ export function MemberFilters({ groups }: MemberFiltersProps) {
           ))}
         </select>
         <select
-          defaultValue={searchParams.get('active') ?? ''}
+          defaultValue={searchParams.get('status') ?? ''}
           onChange={(e) => {
-            router.push(`/members?${createQueryString('active', e.target.value)}`)
+            router.push(`/members?${createQueryString('status', e.target.value)}`)
           }}
           className="flex-1 px-3 py-1.5 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         >
           <option value="">전체 상태</option>
-          <option value="true">활동</option>
-          <option value="false">비활동</option>
+          <option value="활동">활동</option>
+          <option value="비활동">비활동</option>
+          <option value="휴식">휴식</option>
+          <option value="제적">제적</option>
         </select>
       </div>
     </div>

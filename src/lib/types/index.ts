@@ -23,9 +23,12 @@ export interface Member {
   part: Part
   group_number: string | null
   date_of_birth: string | null
-  choir_join_date: string | null
-  church_registration_date: string | null
+  choir_join_year: string | null
+  church_registration_year: string | null
   church_position: string | null
+  choir_role: string | null
+  district: string | null
+  area: string | null
   mission_association_name: string | null
   mission_association_position: string | null
   gender: string | null
@@ -33,7 +36,7 @@ export interface Member {
   phone_number: string | null
   prayer_request: string | null
   photo_url: string | null
-  is_active: boolean
+  status: string | null
   created_by: string | null
   created_at: string
   updated_at: string

@@ -28,7 +28,7 @@ export default async function AttendanceChecklistPage({ params }: Props) {
   const { data: members } = await supabase
     .from('members')
     .select('*')
-    .eq('is_active', true)
+    .or('status.eq.활동,status.is.null')
     .order('name')
 
   // 기존 출석 기록

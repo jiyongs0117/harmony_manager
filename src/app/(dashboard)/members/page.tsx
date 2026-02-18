@@ -8,7 +8,7 @@ import Link from 'next/link'
 import type { Member } from '@/lib/types'
 
 interface Props {
-  searchParams: Promise<{ search?: string; group?: string; active?: string }>
+  searchParams: Promise<{ search?: string; group?: string; status?: string }>
 }
 
 export default async function MembersPage({ searchParams }: Props) {
@@ -23,10 +23,8 @@ export default async function MembersPage({ searchParams }: Props) {
   if (params.group) {
     query = query.eq('group_number', params.group)
   }
-  if (params.active === 'true') {
-    query = query.eq('is_active', true)
-  } else if (params.active === 'false') {
-    query = query.eq('is_active', false)
+  if (params.status) {
+    query = query.eq('status', params.status)
   }
 
   const { data: members } = await query

@@ -45,7 +45,7 @@ export function MemberList({ members }: MemberListProps) {
                       )}
                     </span>
                     {member.name}
-                    {!member.is_active && <Badge variant="danger">비활동</Badge>}
+                    {member.status && member.status !== '활동' && <Badge variant="danger">{member.status}</Badge>}
                   </span>
                 </td>
                 <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.church_position || '-'}</td>

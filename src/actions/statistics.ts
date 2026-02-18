@@ -15,7 +15,7 @@ export async function getAttendanceStats(): Promise<{
   const { data: members } = await supabase
     .from('members')
     .select('id, name, photo_url, group_number')
-    .eq('is_active', true)
+    .or('status.eq.활동,status.is.null')
     .order('name')
 
   const { data: events } = await supabase

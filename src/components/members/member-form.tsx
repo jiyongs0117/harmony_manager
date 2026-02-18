@@ -7,7 +7,7 @@ import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { MemberPhotoUpload } from './member-photo-upload'
-import { CHURCH_POSITIONS, GENDERS } from '@/lib/constants'
+import { CHURCH_POSITIONS, GENDERS, MEMBER_STATUSES } from '@/lib/constants'
 import { createMember, updateMember } from '@/actions/members'
 import { toast } from '@/components/ui/toast'
 import type { Member } from '@/lib/types'
@@ -36,9 +36,12 @@ export function MemberForm({ member, mode }: MemberFormProps) {
       name: getValue('name'),
       group_number: getValue('group_number'),
       date_of_birth: getValue('date_of_birth'),
-      choir_join_date: getValue('choir_join_date'),
-      church_registration_date: getValue('church_registration_date'),
+      choir_join_year: getValue('choir_join_year'),
+      church_registration_year: getValue('church_registration_year'),
       church_position: getValue('church_position'),
+      choir_role: getValue('choir_role'),
+      district: getValue('district'),
+      area: getValue('area'),
       mission_association_name: getValue('mission_association_name'),
       mission_association_position: getValue('mission_association_position'),
       gender: getValue('gender'),
@@ -109,8 +112,8 @@ export function MemberForm({ member, mode }: MemberFormProps) {
           id="date_of_birth"
           name="date_of_birth"
           label="생년월일"
-          type="date"
-          defaultValue={member?.date_of_birth?.slice(0, 10) ?? ''}
+          defaultValue={member?.date_of_birth ?? ''}
+          placeholder="예: 1990-01-01"
         />
       </section>
 
@@ -127,20 +130,43 @@ export function MemberForm({ member, mode }: MemberFormProps) {
         />
         <div className="grid grid-cols-2 gap-3">
           <Input
-            id="choir_join_date"
-            name="choir_join_date"
-            label="성가대 가입일"
-            type="date"
-            defaultValue={member?.choir_join_date?.slice(0, 10) ?? ''}
+            id="district"
+            name="district"
+            label="교구"
+            defaultValue={member?.district ?? ''}
+            placeholder="예: 1교구"
           />
           <Input
-            id="church_registration_date"
-            name="church_registration_date"
-            label="교회 등록일"
-            type="date"
-            defaultValue={member?.church_registration_date?.slice(0, 10) ?? ''}
+            id="area"
+            name="area"
+            label="구역"
+            defaultValue={member?.area ?? ''}
+            placeholder="예: 1구역"
           />
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            id="choir_join_year"
+            name="choir_join_year"
+            label="성가대 가입년도"
+            defaultValue={member?.choir_join_year ?? ''}
+            placeholder="예: 2020"
+          />
+          <Input
+            id="church_registration_year"
+            name="church_registration_year"
+            label="교회 등록년도"
+            defaultValue={member?.church_registration_year ?? ''}
+            placeholder="예: 2015"
+          />
+        </div>
+        <Input
+          id="choir_role"
+          name="choir_role"
+          label="성가대 직책"
+          defaultValue={member?.choir_role ?? ''}
+          placeholder="예: 회장, 부회장, 총무"
+        />
         <Input
           id="mission_association_name"
           name="mission_association_name"

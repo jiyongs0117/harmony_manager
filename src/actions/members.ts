@@ -81,12 +81,12 @@ export async function deleteMember(memberId: string) {
   redirect('/members')
 }
 
-export async function toggleMemberActive(memberId: string, isActive: boolean) {
+export async function updateMemberStatus(memberId: string, status: string) {
   const { supabase } = await getLeaderInfo()
 
   const { error } = await supabase
     .from('members')
-    .update({ is_active: isActive })
+    .update({ status })
     .eq('id', memberId)
 
   if (error) {

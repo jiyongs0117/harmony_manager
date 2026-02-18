@@ -8,6 +8,8 @@ export const CHURCH_POSITIONS: string[] = ['장로', '안수집사', '집사', '
 
 export const GENDERS: string[] = ['남', '여']
 
+export const MEMBER_STATUSES: string[] = ['활동', '비활동', '휴식', '제적']
+
 export const ATTENDANCE_STATUSES: AttendanceStatus[] = ['출석', '결석', '사전불참']
 
 export const EVENT_PRESETS = [

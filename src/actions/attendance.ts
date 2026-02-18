@@ -49,7 +49,7 @@ export async function createEvent(formData: EventFormData) {
   const { data: members } = await supabase
     .from('members')
     .select('id')
-    .eq('is_active', true)
+    .or('status.eq.활동,status.is.null')
 
   if (members && members.length > 0) {
     const records = members.map((m) => ({
