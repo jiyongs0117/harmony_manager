@@ -181,7 +181,7 @@ export function FaceRecognition({ members }: FaceRecognitionProps) {
             }}
             className="w-full px-4 py-4 flex items-center gap-3 active:bg-gray-50 transition-colors"
           >
-            <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
               {bestMatch.member.photo_url ? (
                 <img
                   src={bestMatch.member.photo_url}
@@ -189,19 +189,21 @@ export function FaceRecognition({ members }: FaceRecognitionProps) {
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <span className="text-lg font-semibold text-muted">
+                <span className="text-xl font-semibold text-muted">
                   {getInitials(bestMatch.member.name)}
                 </span>
               )}
             </div>
             <div className="flex-1 text-left">
-              <p className="font-semibold text-base">{bestMatch.member.name}</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <Badge>{bestMatch.member.part}</Badge>
-                <Badge>{bestMatch.member.department}</Badge>
+              <div className="flex items-baseline gap-2">
                 {bestMatch.member.group_number && (
-                  <span className="text-xs text-muted">{bestMatch.member.group_number}조</span>
+                  <span className="text-lg font-bold text-muted">{bestMatch.member.group_number}조</span>
                 )}
+                <p className="font-bold text-2xl">{bestMatch.member.name}</p>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <Badge>{bestMatch.member.department}</Badge>
+                <Badge>{bestMatch.member.part}</Badge>
               </div>
             </div>
             <div className="flex-shrink-0 text-muted">

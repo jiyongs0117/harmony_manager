@@ -20,6 +20,7 @@ interface MemberDetailCardProps {
 export function MemberDetailCard({ member }: MemberDetailCardProps) {
   const router = useRouter()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showPhotoDialog, setShowPhotoDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
   const handleDelete = async () => {
@@ -58,7 +59,12 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
     <div className="px-4 py-4 space-y-4">
       {/* 프로필 상단 */}
       <div className="flex flex-col items-center pt-2">
-        <div className="w-20 h-20 rounded-full bg-primary-light flex items-center justify-center overflow-hidden mb-3">
+        <button
+          type="button"
+          onClick={() => member.photo_url && setShowPhotoDialog(true)}
+          className="w-20 h-20 rounded-full bg-primary-light flex items-center justify-center overflow-hidden mb-3"
+          disabled={!member.photo_url}
+        >
           {member.photo_url ? (
             <img src={member.photo_url} alt={member.name} className="w-full h-full object-cover" />
           ) : (
@@ -66,7 +72,7 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
               {getInitials(member.name)}
             </span>
           )}
-        </div>
+        </button>
         <h2 className="text-lg font-semibold">{member.name}</h2>
         <div className="flex items-center gap-2 mt-1">
           <Badge variant={currentStatus === '활동' ? 'success' : 'danger'}>
@@ -141,6 +147,30 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
         <p><strong>{member.name}</strong> 단원을 삭제하시겠습니까?</p>
         <p className="mt-1">이 작업은 되돌릴 수 없으며, 출석 기록도 함께 삭제됩니다.</p>
       </Dialog>
+
+      {/* 사진 원본 보기 팝업 */}
+      {showPhotoDialog && member.photo_url && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setShowPhotoDialog(false)}
+        >
+          <button
+            onClick={() => setShowPhotoDialog(false)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white z-10"
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          <img
+            src={member.photo_url}
+            alt={member.name}
+            className="max-w-full max-h-[85vh] object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
