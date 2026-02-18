@@ -61,6 +61,39 @@ function cellToString(value: unknown): string | null {
   return String(value).trim() || null
 }
 
+function excelDateToString(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null
+
+  const str = String(value).trim()
+  if (!str) return null
+
+  // 이미 날짜 형식이면 구분자를 '.'으로 통일
+  if (/^\d{4}[./-]\d{1,2}[./-]\d{1,2}$/.test(str)) {
+    const parts = str.split(/[./-]/)
+    return `${parts[0]}.${parts[1].padStart(2, '0')}.${parts[2].padStart(2, '0')}`
+  }
+
+  // yyyymmdd 형태 (구분자 없음)
+  if (/^\d{8}$/.test(str)) {
+    return `${str.slice(0, 4)}.${str.slice(4, 6)}.${str.slice(6, 8)}`
+  }
+
+  // 엑셀 시리얼 넘버 (숫자)
+  const num = Number(str)
+  if (!isNaN(num) && num > 1 && num < 200000) {
+    // 엑셀 날짜 시리얼: 1900-01-01 = 1 (엑셀 1900 윤년 버그 보정)
+    const excelEpoch = new Date(1899, 11, 30)
+    const date = new Date(excelEpoch.getTime() + num * 86400000)
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${y}.${m}.${d}`
+  }
+
+  // 그 외는 원본 그대로 반환
+  return str
+}
+
 function parseExcelData(data: ArrayBuffer): { rows: ParsedRow[]; error?: string } {
   try {
     const workbook = XLSX.read(data, { type: 'array' })
@@ -110,6 +143,8 @@ function parseExcelData(data: ArrayBuffer): { rows: ParsedRow[]; error?: string 
           const value = raw[header]
           if (field === 'name') {
             row.name = cellToString(value) ?? ''
+          } else if (field === 'date_of_birth') {
+            row.date_of_birth = excelDateToString(value)
           } else {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ;(row as any)[field] = cellToString(value)
