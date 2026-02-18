@@ -29,6 +29,7 @@ export default async function AttendanceChecklistPage({ params }: Props) {
     .from('members')
     .select('*')
     .or('status.eq.활동,status.is.null')
+    .order('group_number')
     .order('name')
 
   // 기존 출석 기록

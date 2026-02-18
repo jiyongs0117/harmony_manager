@@ -18,11 +18,10 @@ export function MemberList({ members }: MemberListProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-border">
-              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">부서</th>
-              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">파트</th>
               <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">조</th>
               <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">이름</th>
               <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">직분</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted whitespace-nowrap">성가대직책</th>
             </tr>
           </thead>
           <tbody>
@@ -32,8 +31,6 @@ export function MemberList({ members }: MemberListProps) {
                 onClick={() => router.push(`/members/${member.id}`)}
                 className="border-b border-border last:border-0 hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer"
               >
-                <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.department}</td>
-                <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.part}</td>
                 <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.group_number || '-'}</td>
                 <td className="px-3 py-2.5 whitespace-nowrap font-medium text-foreground">
                   <span className="flex items-center gap-2">
@@ -49,6 +46,7 @@ export function MemberList({ members }: MemberListProps) {
                   </span>
                 </td>
                 <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.church_position || '-'}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-foreground">{member.choir_role || '-'}</td>
               </tr>
             ))}
           </tbody>

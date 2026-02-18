@@ -66,6 +66,21 @@ export function AttendanceChecklist({ eventId, members, records }: AttendanceChe
   const presentCount = Array.from(statusMap.values()).filter((s) => s === '출석').length
   const totalCount = members.length
 
+  // 조별 그룹핑
+  const grouped = members.reduce<Record<string, Member[]>>((acc, member) => {
+    const group = member.group_number || '미배정'
+    if (!acc[group]) acc[group] = []
+    acc[group].push(member)
+    return acc
+  }, {})
+
+  // 조 번호 순 정렬 (미배정은 맨 뒤)
+  const sortedGroups = Object.keys(grouped).sort((a, b) => {
+    if (a === '미배정') return 1
+    if (b === '미배정') return -1
+    return Number(a) - Number(b)
+  })
+
   return (
     <div>
       {/* 요약 바 */}
@@ -91,41 +106,45 @@ export function AttendanceChecklist({ eventId, members, records }: AttendanceChe
         </div>
       </div>
 
-      {/* 체크리스트 */}
-      <div className="divide-y divide-border">
-        {members.map((member) => {
-          const status = statusMap.get(member.id) ?? '결석'
-          return (
-            <div
-              key={member.id}
-              className={cn(
-                'flex items-center gap-3 px-4 py-3',
-                status === '사전불참' && 'bg-orange-50/50'
-              )}
-            >
-              <div className="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0 overflow-hidden">
-                {member.photo_url ? (
-                  <img src={member.photo_url} alt={member.name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-xs font-semibold text-primary">
-                    {getInitials(member.name)}
-                  </span>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium text-foreground">{member.name}</span>
-                {member.group_number && (
-                  <span className="text-xs text-muted ml-1">{member.group_number}</span>
-                )}
-              </div>
-              <StatusToggle
-                status={status}
-                onChange={(newStatus) => handleStatusChange(member.id, newStatus)}
-              />
-            </div>
-          )
-        })}
-      </div>
+      {/* 조별 체크리스트 */}
+      {sortedGroups.map((group) => (
+        <div key={group}>
+          <div className="sticky top-[105px] z-20 bg-gray-50 px-4 py-1.5 border-b border-border">
+            <span className="text-xs font-semibold text-muted">{group === '미배정' ? '미배정' : `${group}조`}</span>
+          </div>
+          <div className="divide-y divide-border">
+            {grouped[group].map((member) => {
+              const status = statusMap.get(member.id) ?? '결석'
+              return (
+                <div
+                  key={member.id}
+                  className={cn(
+                    'flex items-center gap-3 px-4 py-3',
+                    status === '사전불참' && 'bg-orange-50/50'
+                  )}
+                >
+                  <div className="w-10 h-10 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {member.photo_url ? (
+                      <img src={member.photo_url} alt={member.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-semibold text-primary">
+                        {getInitials(member.name)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium text-foreground">{member.name}</span>
+                  </div>
+                  <StatusToggle
+                    status={status}
+                    onChange={(newStatus) => handleStatusChange(member.id, newStatus)}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
 
       {/* 고정 저장 버튼 */}
       <div className="fixed bottom-16 left-0 right-0 p-4 bg-gradient-to-t from-background via-background to-transparent pb-safe">
