@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button'
 import { MemberPhotoUpload } from './member-photo-upload'
 import { SeatPicker } from './seat-picker'
 import { CHURCH_POSITIONS, GENDERS, MEMBER_STATUSES } from '@/lib/constants'
-import { createMember, updateMember } from '@/actions/members'
+import { createMember, updateMember, updateFaceDescriptor } from '@/actions/members'
+import { extractDescriptorFromUrl } from '@/lib/face-extract'
 import { toast } from '@/components/ui/toast'
 import type { Member } from '@/lib/types'
 import type { MemberFormData } from '@/lib/validations'
@@ -23,8 +24,14 @@ export function MemberForm({ member, mode }: MemberFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [photoUrl, setPhotoUrl] = useState<string | null>(member?.photo_url ?? null)
+  const [photoChanged, setPhotoChanged] = useState(false)
   const [name, setName] = useState(member?.name ?? '')
   const [seatNumber, setSeatNumber] = useState<string | null>(member?.seat_number ?? null)
+
+  const handlePhotoChange = (url: string | null) => {
+    setPhotoUrl(url)
+    setPhotoChanged(true)
+  }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -65,6 +72,18 @@ export function MemberForm({ member, mode }: MemberFormProps) {
       if (result?.error) {
         toast(result.error, 'error')
         setIsSubmitting(false)
+        return
+      }
+
+      // 사진이 변경된 경우 face descriptor 추출 & 저장 (백그라운드)
+      if (photoChanged && mode === 'edit' && member) {
+        if (photoUrl) {
+          extractDescriptorFromUrl(photoUrl).then(async (desc) => {
+            await updateFaceDescriptor(member.id, desc)
+          })
+        } else {
+          updateFaceDescriptor(member.id, null)
+        }
       }
     } catch {
       // redirect throws, this is expected
@@ -78,7 +97,7 @@ export function MemberForm({ member, mode }: MemberFormProps) {
         <MemberPhotoUpload
           currentUrl={photoUrl}
           memberName={name}
-          onUpload={setPhotoUrl}
+          onUpload={handlePhotoChange}
         />
       </div>
 

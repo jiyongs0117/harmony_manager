@@ -14,6 +14,7 @@ export interface MemberWithPhoto {
   part: string
   group_number: string | null
   photo_url: string
+  face_descriptor?: number[] | null
 }
 
 export interface MatchResult {
@@ -83,7 +84,19 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           const member = members[i]
           memberMap.set(member.id, member)
 
-          // Try cache first
+          // 1) DB에 저장된 descriptor가 있으면 바로 사용
+          if (member.face_descriptor && member.face_descriptor.length === 128) {
+            labeledDescriptors.push(
+              new faceapi.LabeledFaceDescriptors(
+                member.id,
+                [new Float32Array(member.face_descriptor)]
+              )
+            )
+            setProgress({ current: i + 1, total })
+            continue
+          }
+
+          // 2) 브라우저 캐시 확인
           const cached = await getCachedDescriptor(member.id, member.photo_url)
           if (cached) {
             labeledDescriptors.push(
@@ -93,7 +106,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
             continue
           }
 
-          // Extract descriptor from photo
+          // 3) 사진에서 직접 추출 (fallback)
           try {
             const descriptor = await extractDescriptorFromUrl(member.photo_url)
             if (descriptor) {

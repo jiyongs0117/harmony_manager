@@ -37,6 +37,7 @@ export interface Member {
   prayer_request: string | null
   photo_url: string | null
   seat_number: string | null
+  face_descriptor: number[] | null
   status: string | null
   created_by: string | null
   created_at: string

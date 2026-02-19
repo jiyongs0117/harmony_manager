@@ -8,7 +8,7 @@ export default async function RecognizePage() {
 
   const { data: members } = await supabase
     .from('members')
-    .select('id, name, department, part, group_number, photo_url')
+    .select('id, name, department, part, group_number, photo_url, face_descriptor')
     .or('status.eq.활동,status.is.null')
     .not('photo_url', 'is', null)
     .order('name')

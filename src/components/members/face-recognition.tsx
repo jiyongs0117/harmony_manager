@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFaceRecognition, type MemberWithPhoto } from '@/hooks/use-face-recognition'
 import { upsertAttendance } from '@/actions/attendance'
+import { updateFaceDescriptor } from '@/actions/members'
+import { extractDescriptorFromUrl } from '@/lib/face-extract'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -56,6 +58,37 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
   const [selectedEventId, setSelectedEventId] = useState<string>(activeEvents[0]?.id ?? '')
   const [checkedMembers, setCheckedMembers] = useState<Set<string>>(new Set())
   const [isChecking, setIsChecking] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 })
+
+  // DB에 face_descriptor가 없는 멤버 수
+  const membersWithoutDescriptor = members.filter(
+    (m) => !m.face_descriptor || m.face_descriptor.length !== 128
+  )
+
+  const handleSyncDescriptors = async () => {
+    const targets = membersWithoutDescriptor
+    if (targets.length === 0) {
+      toast('모든 단원의 특징값이 이미 저장되어 있습니다', 'info')
+      return
+    }
+    setIsSyncing(true)
+    setSyncProgress({ current: 0, total: targets.length })
+
+    let successCount = 0
+    for (let i = 0; i < targets.length; i++) {
+      const member = targets[i]
+      const desc = await extractDescriptorFromUrl(member.photo_url)
+      if (desc) {
+        const result = await updateFaceDescriptor(member.id, desc)
+        if (result.success) successCount++
+      }
+      setSyncProgress({ current: i + 1, total: targets.length })
+    }
+
+    setIsSyncing(false)
+    toast(`${successCount}명의 특징값 저장 완료`)
+  }
 
   const handleAttendanceCheck = async (memberId: string) => {
     if (!selectedEventId) {
@@ -99,11 +132,26 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
           </svg>
         </button>
         <h1 className="text-white font-semibold">얼굴 인식</h1>
-        <button
-          onClick={flipCamera}
-          className="text-white"
-          disabled={status !== 'detecting'}
-        >
+        <div className="flex items-center gap-3">
+          {membersWithoutDescriptor.length > 0 && !isSyncing && (
+            <button
+              onClick={handleSyncDescriptors}
+              className="text-xs text-yellow-300 font-medium px-2 py-1 border border-yellow-300/50 rounded-lg"
+              disabled={status === 'loading-models' || status === 'building-descriptors'}
+            >
+              특징값 저장 ({membersWithoutDescriptor.length})
+            </button>
+          )}
+          {isSyncing && (
+            <span className="text-xs text-yellow-300">
+              {syncProgress.current}/{syncProgress.total}
+            </span>
+          )}
+          <button
+            onClick={flipCamera}
+            className="text-white"
+            disabled={status !== 'detecting'}
+          >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
             <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
@@ -111,6 +159,7 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
             <path d="m10 15-3 3-3-3" />
           </svg>
         </button>
+        </div>
       </div>
 
       {/* Main content area */}

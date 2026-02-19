@@ -81,6 +81,23 @@ export async function deleteMember(memberId: string) {
   redirect('/members')
 }
 
+export async function updateFaceDescriptor(memberId: string, descriptor: number[] | null) {
+  const { supabase } = await getLeaderInfo()
+
+  const { error } = await supabase
+    .from('members')
+    .update({ face_descriptor: descriptor })
+    .eq('id', memberId)
+
+  if (error) {
+    return { error: '얼굴 특징값 저장에 실패했습니다: ' + error.message }
+  }
+
+  revalidatePath('/members')
+  revalidatePath(`/members/${memberId}`)
+  return { success: true }
+}
+
 export async function updateMemberStatus(memberId: string, status: string) {
   const { supabase } = await getLeaderInfo()
 
