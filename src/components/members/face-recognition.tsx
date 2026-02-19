@@ -163,7 +163,7 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 min-h-0 relative overflow-hidden">
         {/* Loading models */}
         {status === 'loading-models' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black">
