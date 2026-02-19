@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { MemberPhotoUpload } from './member-photo-upload'
+import { SeatPicker } from './seat-picker'
 import { CHURCH_POSITIONS, GENDERS, MEMBER_STATUSES } from '@/lib/constants'
 import { createMember, updateMember } from '@/actions/members'
 import { toast } from '@/components/ui/toast'
@@ -23,6 +24,7 @@ export function MemberForm({ member, mode }: MemberFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [photoUrl, setPhotoUrl] = useState<string | null>(member?.photo_url ?? null)
   const [name, setName] = useState(member?.name ?? '')
+  const [seatNumber, setSeatNumber] = useState<string | null>(member?.seat_number ?? null)
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -49,6 +51,7 @@ export function MemberForm({ member, mode }: MemberFormProps) {
       phone_number: getValue('phone_number'),
       prayer_request: getValue('prayer_request'),
       photo_url: photoUrl,
+      seat_number: seatNumber,
     }
 
     try {
@@ -108,6 +111,7 @@ export function MemberForm({ member, mode }: MemberFormProps) {
             placeholder="예: 1조"
           />
         </div>
+        <SeatPicker value={seatNumber} onChange={setSeatNumber} />
         <Input
           id="date_of_birth"
           name="date_of_birth"

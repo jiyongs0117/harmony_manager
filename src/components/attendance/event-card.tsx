@@ -18,6 +18,9 @@ export function EventCard({ event, presentCount, totalCount }: EventCardProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-foreground">{event.event_name}</span>
+            <Badge variant={event.event_status === '완료' ? 'default' : 'info'}>
+              {event.event_status || '진행중'}
+            </Badge>
             <Badge variant={rate >= 80 ? 'success' : rate >= 50 ? 'warning' : 'danger'}>
               {rate}%
             </Badge>

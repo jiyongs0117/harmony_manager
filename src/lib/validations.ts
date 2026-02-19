@@ -19,6 +19,7 @@ export const memberSchema = z.object({
   phone_number: emptyToNull,
   prayer_request: emptyToNull,
   photo_url: emptyToNull,
+  seat_number: emptyToNull,
 })
 
 export type MemberFormData = z.infer<typeof memberSchema>

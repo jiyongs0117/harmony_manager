@@ -1,4 +1,4 @@
-import type { Department, Part, AttendanceStatus } from '@/lib/types'
+import type { Department, Part, AttendanceStatus, EventStatus } from '@/lib/types'
 
 export const DEPARTMENTS: Department[] = ['1부', '2부', '3부', '4부', '5부']
 
@@ -26,5 +26,7 @@ export const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, string> = {
   '결석': 'bg-red-100 text-red-800',
   '사전불참': 'bg-orange-100 text-orange-800',
 }
+
+export const EVENT_STATUSES: EventStatus[] = ['진행중', '완료']
 
 export const LONG_TERM_ABSENCE_THRESHOLD = 3

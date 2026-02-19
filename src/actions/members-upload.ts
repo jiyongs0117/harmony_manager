@@ -19,6 +19,7 @@ interface BulkMemberRow {
   address?: string | null
   phone_number?: string | null
   prayer_request?: string | null
+  seat_number?: string | null
 }
 
 const VALID_GENDERS = ['남', '여']
@@ -81,6 +82,7 @@ export async function createMembersBulk(rows: BulkMemberRow[]) {
     address: row.address || null,
     phone_number: row.phone_number || null,
     prayer_request: row.prayer_request || null,
+    seat_number: row.seat_number || null,
     department: leader.department,
     part: leader.part,
     created_by: leader.id,

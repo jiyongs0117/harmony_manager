@@ -36,16 +36,20 @@ export interface Member {
   phone_number: string | null
   prayer_request: string | null
   photo_url: string | null
+  seat_number: string | null
   status: string | null
   created_by: string | null
   created_at: string
   updated_at: string
 }
 
+export type EventStatus = '진행중' | '완료'
+
 export interface AttendanceEvent {
   id: string
   event_name: string
   event_date: string
+  event_status: EventStatus
   department: Department
   part: Part
   created_by: string

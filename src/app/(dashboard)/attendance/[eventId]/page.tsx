@@ -38,16 +38,22 @@ export default async function AttendanceChecklistPage({ params }: Props) {
     .select('*')
     .eq('event_id', eventId)
 
+  const typedEvent = event as AttendanceEvent
+
   return (
     <div>
       <div className="px-4 py-3 border-b border-border">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">{(event as AttendanceEvent).event_name}</h2>
-          <Badge>{formatDate((event as AttendanceEvent).event_date)}</Badge>
+          <h2 className="text-lg font-semibold">{typedEvent.event_name}</h2>
+          <Badge>{formatDate(typedEvent.event_date)}</Badge>
+          <Badge variant={typedEvent.event_status === '완료' ? 'default' : 'info'}>
+            {typedEvent.event_status || '진행중'}
+          </Badge>
         </div>
       </div>
       <AttendanceChecklist
         eventId={eventId}
+        eventStatus={typedEvent.event_status || '진행중'}
         members={(members ?? []) as Member[]}
         records={(records ?? []) as AttendanceRecord[]}
       />

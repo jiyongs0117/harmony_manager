@@ -2,19 +2,21 @@
 
 import { useState } from 'react'
 import { StatusToggle } from './status-toggle'
+import { SeatChart } from './seat-chart'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/toast'
-import { upsertAttendance } from '@/actions/attendance'
+import { upsertAttendance, updateEventStatus } from '@/actions/attendance'
 import { getInitials, cn } from '@/lib/utils'
-import type { Member, AttendanceRecord, AttendanceStatus } from '@/lib/types'
+import type { Member, AttendanceRecord, AttendanceStatus, EventStatus } from '@/lib/types'
 
 interface AttendanceChecklistProps {
   eventId: string
+  eventStatus: EventStatus
   members: Member[]
   records: AttendanceRecord[]
 }
 
-export function AttendanceChecklist({ eventId, members, records }: AttendanceChecklistProps) {
+export function AttendanceChecklist({ eventId, eventStatus, members, records }: AttendanceChecklistProps) {
   const [statusMap, setStatusMap] = useState<Map<string, AttendanceStatus>>(() => {
     const map = new Map<string, AttendanceStatus>()
     // 기존 레코드로 초기화
@@ -28,6 +30,9 @@ export function AttendanceChecklist({ eventId, members, records }: AttendanceChe
     return map
   })
   const [isSaving, setIsSaving] = useState(false)
+  const [showSeatChart, setShowSeatChart] = useState(false)
+  const [currentEventStatus, setCurrentEventStatus] = useState<EventStatus>(eventStatus)
+  const [isStatusChanging, setIsStatusChanging] = useState(false)
 
   const handleStatusChange = (memberId: string, status: AttendanceStatus) => {
     setStatusMap((prev) => {
@@ -63,6 +68,19 @@ export function AttendanceChecklist({ eventId, members, records }: AttendanceChe
     })
   }
 
+  const handleEventStatusChange = async () => {
+    const newStatus: EventStatus = currentEventStatus === '진행중' ? '완료' : '진행중'
+    setIsStatusChanging(true)
+    const result = await updateEventStatus(eventId, newStatus)
+    setIsStatusChanging(false)
+    if (result.error) {
+      toast(result.error, 'error')
+    } else {
+      setCurrentEventStatus(newStatus)
+      toast(newStatus === '완료' ? '출석부가 완료되었습니다' : '출석부가 진행중으로 변경되었습니다')
+    }
+  }
+
   const presentCount = Array.from(statusMap.values()).filter((s) => s === '출석').length
   const totalCount = members.length
 
@@ -91,6 +109,13 @@ export function AttendanceChecklist({ eventId, members, records }: AttendanceChe
         <div className="flex gap-2">
           <button
             type="button"
+            onClick={() => setShowSeatChart(true)}
+            className="text-xs text-primary font-medium px-2 py-1 rounded hover:bg-primary-light"
+          >
+            1층 좌석표
+          </button>
+          <button
+            type="button"
             onClick={() => handleSetAll('출석')}
             className="text-xs text-green-600 font-medium px-2 py-1 rounded hover:bg-green-50"
           >
@@ -104,6 +129,28 @@ export function AttendanceChecklist({ eventId, members, records }: AttendanceChe
             전체결석
           </button>
         </div>
+      </div>
+
+      {/* 상태 변경 바 */}
+      <div className="px-4 py-2 border-b border-border bg-card flex items-center justify-end">
+        <button
+          type="button"
+          onClick={handleEventStatusChange}
+          disabled={isStatusChanging}
+          className={cn(
+            'text-xs font-medium px-3 py-1.5 rounded transition-colors',
+            currentEventStatus === '진행중'
+              ? 'text-blue-600 hover:bg-blue-50'
+              : 'text-orange-600 hover:bg-orange-50',
+            isStatusChanging && 'opacity-50'
+          )}
+        >
+          {isStatusChanging
+            ? '변경 중...'
+            : currentEventStatus === '진행중'
+              ? '✓ 출석부 완료하기'
+              : '↩ 진행중으로 되돌리기'}
+        </button>
       </div>
 
       {/* 조별 체크리스트 */}
@@ -157,6 +204,15 @@ export function AttendanceChecklist({ eventId, members, records }: AttendanceChe
           저장하기
         </Button>
       </div>
+
+      {/* 1층 좌석표 */}
+      <SeatChart
+        members={members}
+        statusMap={statusMap}
+        onStatusChange={handleStatusChange}
+        open={showSeatChart}
+        onClose={() => setShowSeatChart(false)}
+      />
     </div>
   )
 }

@@ -23,6 +23,7 @@ interface ParsedRow {
   address: string | null
   phone_number: string | null
   prayer_request: string | null
+  seat_number: string | null
 }
 
 const COLUMN_MAP: Record<string, keyof ParsedRow> = {
@@ -54,6 +55,8 @@ const COLUMN_MAP: Record<string, keyof ParsedRow> = {
   '전화번호': 'phone_number',
   '연락처': 'phone_number',
   '기도제목': 'prayer_request',
+  '좌석번호': 'seat_number',
+  '좌석': 'seat_number',
 }
 
 function cellToString(value: unknown): string | null {
@@ -137,6 +140,7 @@ function parseExcelData(data: ArrayBuffer): { rows: ParsedRow[]; error?: string 
           address: null,
           phone_number: null,
           prayer_request: null,
+          seat_number: null,
         }
 
         for (const [header, field] of Object.entries(mapping)) {

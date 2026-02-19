@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { eventSchema, type EventFormData } from '@/lib/validations'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import type { AttendanceStatus } from '@/lib/types'
+import type { AttendanceStatus, EventStatus } from '@/lib/types'
 
 async function getLeaderInfo() {
   const supabase = await createClient()
@@ -34,6 +34,7 @@ export async function createEvent(formData: EventFormData) {
     .insert({
       event_name: parsed.data.event_name,
       event_date: parsed.data.event_date,
+      event_status: '진행중' as EventStatus,
       department: leader.department,
       part: leader.part,
       created_by: leader.id,
@@ -79,6 +80,23 @@ export async function deleteEvent(eventId: string) {
 
   revalidatePath('/attendance')
   redirect('/attendance')
+}
+
+export async function updateEventStatus(eventId: string, eventStatus: EventStatus) {
+  const { supabase } = await getLeaderInfo()
+
+  const { error } = await supabase
+    .from('attendance_events')
+    .update({ event_status: eventStatus })
+    .eq('id', eventId)
+
+  if (error) {
+    return { error: '상태 변경에 실패했습니다: ' + error.message }
+  }
+
+  revalidatePath('/attendance')
+  revalidatePath(`/attendance/${eventId}`)
+  return { success: true }
 }
 
 export async function upsertAttendance(

@@ -86,6 +86,7 @@ export function MemberDetailCard({ member }: MemberDetailCardProps) {
       <Card>
         <h3 className="text-sm font-semibold mb-2">기본 정보</h3>
         <InfoRow label="성별" value={member.gender} />
+        <InfoRow label="좌석번호" value={member.seat_number} />
         <InfoRow label="생년월일" value={member.date_of_birth} />
         <InfoRow label="휴대폰번호" value={member.phone_number} />
         <InfoRow label="주소" value={member.address} />
