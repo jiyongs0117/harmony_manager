@@ -1,19 +1,22 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFaceRecognition, type MemberWithPhoto } from '@/hooks/use-face-recognition'
+import { upsertAttendance } from '@/actions/attendance'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from '@/components/ui/toast'
 import { cn, getInitials } from '@/lib/utils'
+import type { AttendanceEvent } from '@/lib/types'
 
 interface FaceRecognitionProps {
   members: MemberWithPhoto[]
+  activeEvents?: AttendanceEvent[]
 }
 
-export function FaceRecognition({ members }: FaceRecognitionProps) {
+export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionProps) {
   const router = useRouter()
   const {
     status,
@@ -49,6 +52,32 @@ export function FaceRecognition({ members }: FaceRecognitionProps) {
   useEffect(() => {
     return () => stopCamera()
   }, [stopCamera])
+
+  const [selectedEventId, setSelectedEventId] = useState<string>(activeEvents[0]?.id ?? '')
+  const [checkedMembers, setCheckedMembers] = useState<Set<string>>(new Set())
+  const [isChecking, setIsChecking] = useState(false)
+
+  const handleAttendanceCheck = async (memberId: string) => {
+    if (!selectedEventId) {
+      toast('진행중인 출석부가 없습니다', 'error')
+      return
+    }
+    if (checkedMembers.has(memberId)) {
+      toast('이미 출석 처리되었습니다', 'info')
+      return
+    }
+    setIsChecking(true)
+    const result = await upsertAttendance(selectedEventId, [
+      { member_id: memberId, status: '출석' },
+    ])
+    setIsChecking(false)
+    if (result.error) {
+      toast(result.error, 'error')
+    } else {
+      setCheckedMembers((prev) => new Set(prev).add(memberId))
+      toast('출석 처리되었습니다 ✓')
+    }
+  }
 
   const bestMatch = matches.length > 0
     ? matches.reduce((best, m) => (m.distance < best.distance ? m : best), matches[0])
@@ -174,14 +203,31 @@ export function FaceRecognition({ members }: FaceRecognitionProps) {
       {/* Match result card */}
       {bestMatch && (
         <div className="bg-white safe-bottom">
-          <button
-            onClick={() => {
-              stopCamera()
-              router.push(`/members/${bestMatch.member.id}`)
-            }}
-            className="w-full px-4 py-4 flex items-center gap-3 active:bg-gray-50 transition-colors"
-          >
-            <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+          {/* 진행중 출석부 선택 (2개 이상일 때만 표시) */}
+          {activeEvents.length > 1 && (
+            <div className="px-4 pt-3 pb-1">
+              <select
+                value={selectedEventId}
+                onChange={(e) => setSelectedEventId(e.target.value)}
+                className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-gray-50"
+              >
+                {activeEvents.map((ev) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.event_name} ({ev.event_date})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="px-4 py-4 flex items-center gap-3">
+            <button
+              onClick={() => {
+                stopCamera()
+                router.push(`/members/${bestMatch.member.id}`)
+              }}
+              className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center"
+            >
               {bestMatch.member.photo_url ? (
                 <img
                   src={bestMatch.member.photo_url}
@@ -193,25 +239,43 @@ export function FaceRecognition({ members }: FaceRecognitionProps) {
                   {getInitials(bestMatch.member.name)}
                 </span>
               )}
+            </button>
+            <div className="flex-1 min-w-0">
+              <button
+                onClick={() => {
+                  stopCamera()
+                  router.push(`/members/${bestMatch.member.id}`)
+                }}
+                className="text-left"
+              >
+                <div className="flex items-baseline gap-2">
+                  {bestMatch.member.group_number && (
+                    <span className="text-lg font-bold text-muted">{bestMatch.member.group_number}조</span>
+                  )}
+                  <p className="font-bold text-2xl">{bestMatch.member.name}</p>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Badge>{bestMatch.member.department}</Badge>
+                  <Badge>{bestMatch.member.part}</Badge>
+                </div>
+              </button>
             </div>
-            <div className="flex-1 text-left">
-              <div className="flex items-baseline gap-2">
-                {bestMatch.member.group_number && (
-                  <span className="text-lg font-bold text-muted">{bestMatch.member.group_number}조</span>
+            {activeEvents.length > 0 && (
+              <button
+                onClick={() => handleAttendanceCheck(bestMatch.member.id)}
+                disabled={isChecking || checkedMembers.has(bestMatch.member.id)}
+                className={cn(
+                  'flex-shrink-0 px-4 py-3 rounded-xl text-sm font-bold transition-colors',
+                  checkedMembers.has(bestMatch.member.id)
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-primary text-white active:bg-primary/80',
+                  isChecking && 'opacity-50'
                 )}
-                <p className="font-bold text-2xl">{bestMatch.member.name}</p>
-              </div>
-              <div className="flex items-center gap-1.5 mt-1">
-                <Badge>{bestMatch.member.department}</Badge>
-                <Badge>{bestMatch.member.part}</Badge>
-              </div>
-            </div>
-            <div className="flex-shrink-0 text-muted">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-            </div>
-          </button>
+              >
+                {checkedMembers.has(bestMatch.member.id) ? '출석 ✓' : isChecking ? '처리중...' : '출석 체크'}
+              </button>
+            )}
+          </div>
 
           {/* Multiple matches */}
           {matches.length > 1 && (
@@ -222,10 +286,19 @@ export function FaceRecognition({ members }: FaceRecognitionProps) {
                   <button
                     key={match.member.id}
                     onClick={() => {
-                      stopCamera()
-                      router.push(`/members/${match.member.id}`)
+                      if (activeEvents.length > 0) {
+                        handleAttendanceCheck(match.member.id)
+                      } else {
+                        stopCamera()
+                        router.push(`/members/${match.member.id}`)
+                      }
                     }}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg flex-shrink-0 active:bg-gray-100"
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg flex-shrink-0',
+                      checkedMembers.has(match.member.id)
+                        ? 'bg-green-50 ring-1 ring-green-300'
+                        : 'bg-gray-50 active:bg-gray-100'
+                    )}
                   >
                     <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
                       {match.member.photo_url ? (
@@ -241,6 +314,9 @@ export function FaceRecognition({ members }: FaceRecognitionProps) {
                       )}
                     </div>
                     <span className="text-sm font-medium">{match.member.name}</span>
+                    {checkedMembers.has(match.member.id) && (
+                      <span className="text-green-600 text-xs font-bold">✓</span>
+                    )}
                   </button>
                 ))}
             </div>
