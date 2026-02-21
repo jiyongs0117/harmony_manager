@@ -33,9 +33,14 @@ export default async function AdminPage() {
       <PageHeader
         title="파트장 관리"
         action={
-          <Link href="/admin/new">
-            <Button size="sm">+ 파트장 추가</Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/members/upload">
+              <Button size="sm" variant="secondary">엑셀 업로드</Button>
+            </Link>
+            <Link href="/admin/new">
+              <Button size="sm">+ 파트장 추가</Button>
+            </Link>
+          </div>
         }
       />
 

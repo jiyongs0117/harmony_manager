@@ -46,9 +46,6 @@ export default async function MembersPage({ searchParams }: Props) {
             <Link href="/members/recognize">
               <Button size="sm" variant="secondary">얼굴 인식</Button>
             </Link>
-            <Link href="/members/upload">
-              <Button size="sm" variant="secondary">엑셀 업로드</Button>
-            </Link>
             <Link href="/members/new">
               <Button size="sm">+ 등록</Button>
             </Link>

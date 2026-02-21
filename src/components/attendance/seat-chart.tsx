@@ -13,8 +13,6 @@ interface SeatChartProps {
   onClose: () => void
 }
 
-const STATUS_CYCLE: AttendanceStatus[] = ['결석', '출석', '사전불참']
-
 function getStatusColor(status: AttendanceStatus | undefined) {
   switch (status) {
     case '출석':
@@ -65,16 +63,6 @@ export function SeatChart({ members, statusMap, onStatusChange, open, onClose }:
   // 좌석 출석 카운트 (좌석 배정된 멤버만)
   const seatMembers = members.filter((m) => m.seat_number)
   const seatPresent = seatMembers.filter((m) => statusMap.get(m.id) === '출석').length
-
-  const handleSeatClick = useCallback((seatNumber: string) => {
-    const member = seatToMember.get(seatNumber)
-    if (!member) return
-
-    const current = statusMap.get(member.id) ?? '결석'
-    const idx = STATUS_CYCLE.indexOf(current)
-    const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length]
-    onStatusChange(member.id, next)
-  }, [seatToMember, statusMap, onStatusChange])
 
   const handleLongPressStart = useCallback((seatNumber: string) => {
     const member = seatToMember.get(seatNumber)
@@ -129,7 +117,6 @@ export function SeatChart({ members, statusMap, onStatusChange, open, onClose }:
           'w-11 h-11 rounded text-center flex flex-col items-center justify-center relative transition-colors border border-white/20',
           member ? getStatusColor(status) : 'bg-gray-100 text-gray-300'
         )}
-        onClick={() => handleSeatClick(seatNumber)}
         onTouchStart={() => handleLongPressStart(seatNumber)}
         onTouchEnd={handleLongPressEnd}
         onMouseDown={() => handleLongPressStart(seatNumber)}
@@ -215,7 +202,7 @@ export function SeatChart({ members, statusMap, onStatusChange, open, onClose }:
         </div>
 
         <p className="text-[10px] text-gray-400 text-center mt-2">
-          좌석 클릭: 출석 토글 · 길게 누르기: 대체 멤버 지정
+          길게 누르기: 대체 멤버 지정
         </p>
       </div>
 
