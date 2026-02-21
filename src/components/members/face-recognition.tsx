@@ -101,7 +101,7 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
     }
     setIsChecking(true)
     const result = await upsertAttendance(selectedEventId, [
-      { member_id: memberId, status: '출석' },
+      { member_id: memberId, status: '출석', checked_at: new Date().toISOString() },
     ])
     setIsChecking(false)
     if (result.error) {
@@ -117,7 +117,7 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
     : null
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-black">
+    <div className="flex flex-col h-[100dvh] bg-black overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-sm z-10">
         <button
@@ -163,7 +163,7 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 min-h-0 relative overflow-hidden">
+      <div className="relative overflow-hidden" style={{ height: '55dvh' }}>
         {/* Loading models */}
         {status === 'loading-models' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black">
@@ -251,7 +251,7 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
 
       {/* Match result card */}
       {bestMatch && (
-        <div className="bg-white safe-bottom">
+        <div className="bg-white safe-bottom flex-1 overflow-y-auto">
           {/* 진행중 출석부 선택 (2개 이상일 때만 표시) */}
           {activeEvents.length > 1 && (
             <div className="px-4 pt-3 pb-1">

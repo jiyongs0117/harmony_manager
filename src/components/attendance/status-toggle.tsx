@@ -6,6 +6,7 @@ import type { AttendanceStatus } from '@/lib/types'
 interface StatusToggleProps {
   status: AttendanceStatus
   onChange: (status: AttendanceStatus) => void
+  disabled?: boolean
 }
 
 const statusConfig: { value: AttendanceStatus; label: string; activeClass: string }[] = [
@@ -14,14 +15,15 @@ const statusConfig: { value: AttendanceStatus; label: string; activeClass: strin
   { value: '사전불참', label: '사전', activeClass: 'bg-orange-400 text-white' },
 ]
 
-export function StatusToggle({ status, onChange }: StatusToggleProps) {
+export function StatusToggle({ status, onChange, disabled }: StatusToggleProps) {
   return (
-    <div className="flex rounded-lg overflow-hidden border border-border">
+    <div className={cn('flex rounded-lg overflow-hidden border border-border', disabled && 'opacity-50')}>
       {statusConfig.map((config) => (
         <button
           key={config.value}
           type="button"
           onClick={() => onChange(config.value)}
+          disabled={disabled}
           className={cn(
             'px-2.5 py-1.5 text-xs font-medium transition-colors min-w-[44px]',
             status === config.value

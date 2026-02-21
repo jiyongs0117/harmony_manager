@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { StatusToggle } from './status-toggle'
 import { SeatChart } from './seat-chart'
-import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/toast'
 import { upsertAttendance, updateEventStatus } from '@/actions/attendance'
 import { getInitials, cn } from '@/lib/utils'
@@ -14,6 +13,13 @@ interface AttendanceChecklistProps {
   eventStatus: EventStatus
   members: Member[]
   records: AttendanceRecord[]
+}
+
+function formatTime(isoString: string | null | undefined): string | null {
+  if (!isoString) return null
+  const d = new Date(isoString)
+  if (isNaN(d.getTime())) return null
+  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 export function AttendanceChecklist({ eventId, eventStatus, members, records }: AttendanceChecklistProps) {
@@ -29,43 +35,73 @@ export function AttendanceChecklist({ eventId, eventStatus, members, records }: 
     })
     return map
   })
-  const [isSaving, setIsSaving] = useState(false)
+  const [checkedAtMap, setCheckedAtMap] = useState<Map<string, string>>(() => {
+    const map = new Map<string, string>()
+    records.forEach((r) => {
+      if (r.status === '출석' && r.checked_at) map.set(r.member_id, r.checked_at)
+    })
+    return map
+  })
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
   const [showSeatChart, setShowSeatChart] = useState(false)
   const [currentEventStatus, setCurrentEventStatus] = useState<EventStatus>(eventStatus)
   const [isStatusChanging, setIsStatusChanging] = useState(false)
 
-  const handleStatusChange = (memberId: string, status: AttendanceStatus) => {
+  const handleStatusChange = async (memberId: string, status: AttendanceStatus) => {
+    const now = new Date().toISOString()
     setStatusMap((prev) => {
       const next = new Map(prev)
       next.set(memberId, status)
       return next
     })
-  }
+    setCheckedAtMap((prev) => {
+      const next = new Map(prev)
+      if (status === '출석') next.set(memberId, now)
+      else next.delete(memberId)
+      return next
+    })
 
-  const handleSave = async () => {
-    setIsSaving(true)
-    const recordsToSave = Array.from(statusMap.entries()).map(([member_id, status]) => ({
-      member_id,
+    setSavingIds((prev) => new Set(prev).add(memberId))
+    const result = await upsertAttendance(eventId, [{
+      member_id: memberId,
       status,
-    }))
-
-    const result = await upsertAttendance(eventId, recordsToSave)
-    setIsSaving(false)
+      checked_at: status === '출석' ? now : null,
+    }])
+    setSavingIds((prev) => {
+      const next = new Set(prev)
+      next.delete(memberId)
+      return next
+    })
 
     if (result.error) {
       toast(result.error, 'error')
-    } else {
-      toast('출석이 저장되었습니다')
     }
   }
 
   // 전체 출석/결석 버튼
-  const handleSetAll = (status: AttendanceStatus) => {
+  const handleSetAll = async (status: AttendanceStatus) => {
+    const now = new Date().toISOString()
     setStatusMap((prev) => {
       const next = new Map(prev)
       members.forEach((m) => next.set(m.id, status))
       return next
     })
+    setCheckedAtMap((prev) => {
+      const next = new Map(prev)
+      if (status === '출석') members.forEach((m) => next.set(m.id, now))
+      else members.forEach((m) => next.delete(m.id))
+      return next
+    })
+
+    const recordsToSave = members.map((m) => ({
+      member_id: m.id,
+      status,
+      checked_at: status === '출석' ? now : null,
+    }))
+    const result = await upsertAttendance(eventId, recordsToSave)
+    if (result.error) {
+      toast(result.error, 'error')
+    }
   }
 
   const handleEventStatusChange = async () => {
@@ -181,10 +217,16 @@ export function AttendanceChecklist({ eventId, eventStatus, members, records }: 
                   </div>
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-medium text-foreground">{member.name}</span>
+                    {status === '출석' && checkedAtMap.get(member.id) && (
+                      <p className="text-[11px] text-emerald-600 font-medium mt-0.5">
+                        {formatTime(checkedAtMap.get(member.id))}
+                      </p>
+                    )}
                   </div>
                   <StatusToggle
                     status={status}
                     onChange={(newStatus) => handleStatusChange(member.id, newStatus)}
+                    disabled={savingIds.has(member.id)}
                   />
                 </div>
               )
@@ -192,18 +234,6 @@ export function AttendanceChecklist({ eventId, eventStatus, members, records }: 
           </div>
         </div>
       ))}
-
-      {/* 고정 저장 버튼 */}
-      <div className="fixed bottom-16 left-0 right-0 p-4 bg-gradient-to-t from-background via-background to-transparent pb-safe">
-        <Button
-          onClick={handleSave}
-          isLoading={isSaving}
-          className="w-full"
-          size="lg"
-        >
-          저장하기
-        </Button>
-      </div>
 
       {/* 1층 좌석표 */}
       <SeatChart

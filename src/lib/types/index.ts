@@ -64,6 +64,7 @@ export interface AttendanceRecord {
   member_id: string
   status: AttendanceStatus
   note: string | null
+  checked_at: string | null
   created_at: string
   updated_at: string
 }

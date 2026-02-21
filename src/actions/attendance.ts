@@ -101,14 +101,19 @@ export async function updateEventStatus(eventId: string, eventStatus: EventStatu
 
 export async function upsertAttendance(
   eventId: string,
-  records: { member_id: string; status: AttendanceStatus }[]
+  records: { member_id: string; status: AttendanceStatus; checked_at?: string | null }[]
 ) {
   const { supabase } = await getLeaderInfo()
 
+  const now = new Date().toISOString()
   const upsertData = records.map((r) => ({
     event_id: eventId,
     member_id: r.member_id,
     status: r.status,
+    // checked_at을 직접 전달한 경우 그 값 사용, 아니면 출석이면 현재 시각, 결석/사전불참이면 null
+    checked_at: r.checked_at !== undefined
+      ? r.checked_at
+      : r.status === '출석' ? now : null,
   }))
 
   const { error } = await supabase
