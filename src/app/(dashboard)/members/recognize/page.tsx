@@ -40,10 +40,23 @@ export default async function RecognizePage() {
     activeEvents = (eventsData ?? []) as AttendanceEvent[]
   }
 
+  // 진행중 이벤트에서 이미 출석 처리된 단원 ID 조회
+  let checkedMemberIds: string[] = []
+  if (activeEvents.length > 0) {
+    const eventIds = activeEvents.map((e) => e.id)
+    const { data: checkedData } = await supabase
+      .from('attendance_records')
+      .select('member_id')
+      .in('event_id', eventIds)
+      .eq('status', '출석')
+    checkedMemberIds = (checkedData ?? []).map((r) => r.member_id)
+  }
+
   return (
     <FaceRecognition
       members={members}
       activeEvents={activeEvents}
+      initialCheckedMemberIds={checkedMemberIds}
     />
   )
 }

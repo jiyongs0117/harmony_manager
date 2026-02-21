@@ -15,9 +15,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-black">
+    <div className="h-[100dvh] flex flex-col bg-black overflow-hidden">
       {/* 교회 사진 영역 */}
-      <div className="relative w-full flex-1 min-h-[55vh]">
+      <div className="relative w-full flex-1">
         <Image
           src="/church.jpg"
           alt="교회"

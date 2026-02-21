@@ -16,9 +16,10 @@ import type { AttendanceEvent } from '@/lib/types'
 interface FaceRecognitionProps {
   members: MemberWithPhoto[]
   activeEvents?: AttendanceEvent[]
+  initialCheckedMemberIds?: string[]
 }
 
-export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionProps) {
+export function FaceRecognition({ members, activeEvents = [], initialCheckedMemberIds = [] }: FaceRecognitionProps) {
   const router = useRouter()
   const {
     status,
@@ -56,7 +57,7 @@ export function FaceRecognition({ members, activeEvents = [] }: FaceRecognitionP
   }, [stopCamera])
 
   const [selectedEventId, setSelectedEventId] = useState<string>(activeEvents[0]?.id ?? '')
-  const [checkedMembers, setCheckedMembers] = useState<Set<string>>(new Set())
+  const [checkedMembers, setCheckedMembers] = useState<Set<string>>(new Set(initialCheckedMemberIds))
   const [isChecking, setIsChecking] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 })
