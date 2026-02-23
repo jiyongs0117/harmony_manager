@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LeaderCard } from '@/components/admin/leader-card'
+import { BulkDescriptorSync } from '@/components/admin/bulk-descriptor-sync'
 import Link from 'next/link'
 import type { Leader } from '@/lib/types'
 
@@ -33,7 +34,8 @@ export default async function AdminPage() {
       <PageHeader
         title="파트장 관리"
         action={
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center flex-wrap justify-end">
+            <BulkDescriptorSync />
             <Link href="/members/upload">
               <Button size="sm" variant="secondary">엑셀 업로드</Button>
             </Link>
