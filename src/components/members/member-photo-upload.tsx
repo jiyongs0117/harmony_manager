@@ -3,11 +3,13 @@
 import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, getInitials } from '@/lib/utils'
+import { extractDescriptorFromUrl } from '@/lib/face-extract'
 
 interface MemberPhotoUploadProps {
   currentUrl: string | null
   memberName: string
   onUpload: (url: string) => void
+  onDescriptor?: (descriptor: number[] | null) => void
 }
 
 async function resizeImage(file: File, maxWidth = 800): Promise<Blob> {
@@ -36,8 +38,9 @@ async function resizeImage(file: File, maxWidth = 800): Promise<Blob> {
   })
 }
 
-export function MemberPhotoUpload({ currentUrl, memberName, onUpload }: MemberPhotoUploadProps) {
+export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescriptor }: MemberPhotoUploadProps) {
   const [uploading, setUploading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentUrl)
   const cameraRef = useRef<HTMLInputElement>(null)
   const albumRef = useRef<HTMLInputElement>(null)
@@ -65,21 +68,37 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload }: MemberPh
         .from('member-photos')
         .getPublicUrl(data.path)
 
-      setPreviewUrl(urlData.publicUrl)
-      onUpload(urlData.publicUrl)
+      const publicUrl = urlData.publicUrl
+      setPreviewUrl(publicUrl)
+      onUpload(publicUrl)
+      setUploading(false)
+
+      // 업로드 완료 후 descriptor 추출
+      if (onDescriptor) {
+        setExtracting(true)
+        try {
+          const descriptor = await extractDescriptorFromUrl(publicUrl)
+          onDescriptor(descriptor)
+        } catch {
+          onDescriptor(null)
+        } finally {
+          setExtracting(false)
+        }
+      }
     } catch {
       alert('사진 업로드에 실패했습니다')
-    } finally {
       setUploading(false)
     }
   }
+
+  const isLoading = uploading || extracting
 
   return (
     <div className="flex flex-col items-center gap-2">
       <div
         className={cn(
           'w-24 h-24 rounded-full overflow-hidden border-2 border-dashed border-border flex items-center justify-center',
-          uploading && 'opacity-50'
+          isLoading && 'opacity-50'
         )}
       >
         {previewUrl ? (
@@ -90,8 +109,10 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload }: MemberPh
           </span>
         )}
       </div>
-      {uploading ? (
-        <span className="text-xs text-muted">업로드 중...</span>
+      {isLoading ? (
+        <span className="text-xs text-muted">
+          {uploading ? '업로드 중...' : '얼굴 분석 중...'}
+        </span>
       ) : (
         <div className="flex gap-3">
           <button

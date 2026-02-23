@@ -20,7 +20,7 @@ async function getLeaderInfo() {
   return { supabase, leader }
 }
 
-export async function createMember(formData: MemberFormData) {
+export async function createMember(formData: MemberFormData, faceDescriptor?: number[] | null) {
   const parsed = memberSchema.safeParse(formData)
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message }
@@ -33,6 +33,7 @@ export async function createMember(formData: MemberFormData) {
     department: leader.department,
     part: leader.part,
     created_by: leader.id,
+    face_descriptor: faceDescriptor ?? null,
   })
 
   if (error) {

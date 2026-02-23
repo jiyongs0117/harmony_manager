@@ -33,7 +33,7 @@ export type RecognitionStatus =
 
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
-const MATCH_THRESHOLD = 0.6
+const MATCH_THRESHOLD = 0.4
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')

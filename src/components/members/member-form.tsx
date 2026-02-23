@@ -10,7 +10,6 @@ import { MemberPhotoUpload } from './member-photo-upload'
 import { SeatPicker } from './seat-picker'
 import { CHURCH_POSITIONS, GENDERS, MEMBER_STATUSES } from '@/lib/constants'
 import { createMember, updateMember, updateFaceDescriptor } from '@/actions/members'
-import { extractDescriptorFromUrl } from '@/lib/face-extract'
 import { toast } from '@/components/ui/toast'
 import type { Member } from '@/lib/types'
 import type { MemberFormData } from '@/lib/validations'
@@ -25,12 +24,18 @@ export function MemberForm({ member, mode }: MemberFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [photoUrl, setPhotoUrl] = useState<string | null>(member?.photo_url ?? null)
   const [photoChanged, setPhotoChanged] = useState(false)
+  const [pendingDescriptor, setPendingDescriptor] = useState<number[] | null | undefined>(undefined)
   const [name, setName] = useState(member?.name ?? '')
   const [seatNumber, setSeatNumber] = useState<string | null>(member?.seat_number ?? null)
 
   const handlePhotoChange = (url: string | null) => {
     setPhotoUrl(url)
     setPhotoChanged(true)
+    setPendingDescriptor(undefined) // 새 사진 - descriptor 추출 대기 중
+  }
+
+  const handleDescriptor = (descriptor: number[] | null) => {
+    setPendingDescriptor(descriptor)
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -64,7 +69,9 @@ export function MemberForm({ member, mode }: MemberFormProps) {
     try {
       let result
       if (mode === 'create') {
-        result = await createMember(formData)
+        // 사진이 있고 descriptor가 추출됐으면 함께 저장
+        const descriptor = photoChanged ? (pendingDescriptor ?? null) : null
+        result = await createMember(formData, descriptor)
       } else {
         result = await updateMember(member!.id, formData)
       }
@@ -75,15 +82,10 @@ export function MemberForm({ member, mode }: MemberFormProps) {
         return
       }
 
-      // 사진이 변경된 경우 face descriptor 추출 & 저장 (백그라운드)
+      // edit 모드에서 사진이 변경된 경우 descriptor 저장
       if (photoChanged && mode === 'edit' && member) {
-        if (photoUrl) {
-          extractDescriptorFromUrl(photoUrl).then(async (desc) => {
-            await updateFaceDescriptor(member.id, desc)
-          })
-        } else {
-          updateFaceDescriptor(member.id, null)
-        }
+        const descriptor = pendingDescriptor !== undefined ? pendingDescriptor : null
+        await updateFaceDescriptor(member.id, descriptor)
       }
     } catch {
       // redirect throws, this is expected
@@ -98,6 +100,7 @@ export function MemberForm({ member, mode }: MemberFormProps) {
           currentUrl={photoUrl}
           memberName={name}
           onUpload={handlePhotoChange}
+          onDescriptor={handleDescriptor}
         />
       </div>
 
