@@ -26,6 +26,12 @@ function getStatusColor(status: AttendanceStatus | undefined) {
   }
 }
 
+function getSeatColor(status: AttendanceStatus | undefined, hasSubstitute: boolean) {
+  // 결석 + 대체자 지정된 경우 → amber (더 진한 주황으로 사전불참과 구분)
+  if (status === '결석' && hasSubstitute) return 'bg-amber-500 text-white'
+  return getStatusColor(status)
+}
+
 export function SeatChart({ members, statusMap, onStatusChange, open, onClose }: SeatChartProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [substituteMap, setSubstituteMap] = useState<Map<string, Member>>(new Map())
@@ -67,8 +73,7 @@ export function SeatChart({ members, statusMap, onStatusChange, open, onClose }:
   const handleLongPressStart = useCallback((seatNumber: string) => {
     const member = seatToMember.get(seatNumber)
     if (!member) return
-    const status = statusMap.get(member.id)
-    if (status === '출석') return // 출석인 좌석은 대체 불필요
+    // 모든 좌석(출석/결석/사전불참 모두)에서 대체자 지정 가능
 
     longPressTimer.current = setTimeout(() => {
       setSelectingSeat(seatNumber)
@@ -108,6 +113,7 @@ export function SeatChart({ members, statusMap, onStatusChange, open, onClose }:
     const member = seatToMember.get(seatNumber)
     const substitute = substituteMap.get(seatNumber)
     const status = member ? statusMap.get(member.id) : undefined
+    const hasSubstitute = !!substitute
 
     return (
       <button
@@ -115,7 +121,7 @@ export function SeatChart({ members, statusMap, onStatusChange, open, onClose }:
         type="button"
         className={cn(
           'w-11 h-11 rounded text-center flex flex-col items-center justify-center relative transition-colors border border-white/20',
-          member ? getStatusColor(status) : 'bg-gray-100 text-gray-300'
+          member ? getSeatColor(status, hasSubstitute) : 'bg-gray-100 text-gray-300'
         )}
         onTouchStart={() => handleLongPressStart(seatNumber)}
         onTouchEnd={handleLongPressEnd}
@@ -186,12 +192,15 @@ export function SeatChart({ members, statusMap, onStatusChange, open, onClose }:
         </div>
 
         {/* Legend */}
-        <div className="flex items-center justify-center gap-4 mt-6 text-xs text-gray-500">
+        <div className="flex items-center justify-center gap-3 mt-6 text-xs text-gray-500 flex-wrap">
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 rounded bg-green-500" /> 출석
           </span>
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 rounded bg-red-400" /> 결석
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded bg-amber-500" /> 결석(대체)
           </span>
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 rounded bg-orange-400" /> 사전불참
