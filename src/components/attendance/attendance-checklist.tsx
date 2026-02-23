@@ -193,7 +193,18 @@ export function AttendanceChecklist({ eventId, eventStatus, members, records }: 
       {sortedGroups.map((group) => (
         <div key={group}>
           <div className="sticky top-[105px] z-20 bg-gray-50 px-4 py-1.5 border-b border-border">
-            <span className="text-xs font-semibold text-muted">{group === '미배정' ? '미배정' : `${group}조`}</span>
+            {(() => {
+              const groupMembers = grouped[group]
+              const groupPresent = groupMembers.filter((m) => statusMap.get(m.id) === '출석').length
+              const groupTotal = groupMembers.length
+              const label = group === '미배정' ? '미배정' : `${group}조`
+              return (
+                <span className="text-xs font-semibold text-muted">
+                  {label}{' '}
+                  <span className="font-normal text-muted">({groupPresent}/{groupTotal})</span>
+                </span>
+              )
+            })()}
           </div>
           <div className="divide-y divide-border">
             {grouped[group].map((member) => {
