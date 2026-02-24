@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, getInitials } from '@/lib/utils'
-import { extractDescriptorFromUrl } from '@/lib/face-extract'
+import { extractDescriptorFromUrl, getExtractFailMessage } from '@/lib/face-extract'
 
 interface MemberPhotoUploadProps {
   currentUrl: string | null
@@ -41,6 +41,7 @@ async function resizeImage(file: File, maxWidth = 800): Promise<Blob> {
 export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescriptor }: MemberPhotoUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentUrl)
   const cameraRef = useRef<HTMLInputElement>(null)
   const albumRef = useRef<HTMLInputElement>(null)
@@ -76,10 +77,17 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
       // 업로드 완료 후 descriptor 추출
       if (onDescriptor) {
         setExtracting(true)
+        setExtractError(null)
         try {
-          const descriptor = await extractDescriptorFromUrl(publicUrl)
-          onDescriptor(descriptor)
+          const result = await extractDescriptorFromUrl(publicUrl)
+          if (result.success) {
+            onDescriptor(result.descriptor)
+          } else {
+            setExtractError(getExtractFailMessage(result.reason))
+            onDescriptor(null)
+          }
         } catch {
+          setExtractError('얼굴 분석 중 오류가 발생했어요. 다른 사진으로 시도해 주세요.')
           onDescriptor(null)
         } finally {
           setExtracting(false)
@@ -114,6 +122,12 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
           {uploading ? '업로드 중...' : '얼굴 분석 중...'}
         </span>
       ) : (
+        <>
+          {extractError && (
+            <p className="text-xs text-destructive text-center max-w-[180px] leading-tight">
+              ⚠️ {extractError}
+            </p>
+          )}
         <div className="flex gap-3">
           <button
             type="button"
@@ -130,6 +144,7 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
             앨범
           </button>
         </div>
+        </>
       )}
       <input
         ref={cameraRef}

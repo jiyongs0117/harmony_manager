@@ -14,6 +14,7 @@ interface Progress {
   succeeded: number
   failed: number
   currentName: string
+  failedNames: string[]
 }
 
 export function BulkDescriptorSync() {
@@ -41,6 +42,7 @@ export function BulkDescriptorSync() {
         succeeded: 0,
         failed: 0,
         currentName: '',
+        failedNames: [],
       })
       setState('done')
       return
@@ -49,6 +51,7 @@ export function BulkDescriptorSync() {
     const total = members.length
     let succeeded = 0
     let failed = 0
+    const failedNames: string[] = []
 
     for (let i = 0; i < members.length; i++) {
       const member = members[i]
@@ -59,19 +62,22 @@ export function BulkDescriptorSync() {
         succeeded,
         failed,
         currentName: member.name,
+        failedNames: [...failedNames],
       })
 
       try {
-        const descriptor = await extractDescriptorFromUrl(member.photo_url!)
-        if (descriptor) {
-          await updateFaceDescriptor(member.id, descriptor)
+        const result = await extractDescriptorFromUrl(member.photo_url!)
+        if (result.success) {
+          await updateFaceDescriptor(member.id, result.descriptor)
           succeeded++
         } else {
-          // 얼굴 미감지
+          // 얼굴 미감지 또는 분석 오류
           failed++
+          failedNames.push(member.name)
         }
       } catch {
         failed++
+        failedNames.push(member.name)
       }
     }
 
@@ -81,6 +87,7 @@ export function BulkDescriptorSync() {
       succeeded,
       failed,
       currentName: '',
+      failedNames,
     })
     setState('done')
   }
@@ -124,21 +131,29 @@ export function BulkDescriptorSync() {
 
   if (state === 'done' && progress) {
     return (
-      <div className="flex items-center gap-3">
-        <div className="flex flex-col items-end gap-0.5">
-          <span className="text-xs text-foreground font-medium">
-            완료: {progress.succeeded}명 성공
-            {progress.failed > 0 && (
-              <span className="text-muted"> / {progress.failed}명 실패</span>
+      <div className="flex flex-col items-end gap-1.5">
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="text-xs text-foreground font-medium">
+              완료: {progress.succeeded}명 성공
+              {progress.failed > 0 && (
+                <span className="text-destructive"> / {progress.failed}명 실패</span>
+              )}
+            </span>
+            {progress.total === 0 && (
+              <span className="text-xs text-muted">추출할 대상 없음</span>
             )}
-          </span>
-          {progress.total === 0 && (
-            <span className="text-xs text-muted">추출할 대상 없음</span>
-          )}
+          </div>
+          <Button size="sm" variant="secondary" onClick={handleReset}>
+            닫기
+          </Button>
         </div>
-        <Button size="sm" variant="secondary" onClick={handleReset}>
-          닫기
-        </Button>
+        {progress.failedNames.length > 0 && (
+          <div className="text-xs text-destructive text-right max-w-[260px]">
+            <span className="font-medium">얼굴 미감지: </span>
+            <span>{progress.failedNames.join(', ')}</span>
+          </div>
+        )}
       </div>
     )
   }
