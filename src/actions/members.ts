@@ -99,6 +99,23 @@ export async function updateFaceDescriptor(memberId: string, descriptor: number[
   return { success: true }
 }
 
+export async function clearMemberPhoto(memberId: string) {
+  const { supabase } = await getLeaderInfo()
+
+  const { error } = await supabase
+    .from('members')
+    .update({ photo_url: null, face_descriptor: null })
+    .eq('id', memberId)
+
+  if (error) {
+    return { error: '사진 초기화에 실패했습니다: ' + error.message }
+  }
+
+  revalidatePath('/members')
+  revalidatePath(`/members/${memberId}`)
+  return { success: true }
+}
+
 export async function updateMemberStatus(memberId: string, status: string) {
   const { supabase } = await getLeaderInfo()
 

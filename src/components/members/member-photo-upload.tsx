@@ -50,7 +50,9 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
     const file = e.target.files?.[0]
     if (!file) return
 
+    setExtractError(null)
     setUploading(true)
+
     try {
       const resized = await resizeImage(file)
       const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
@@ -65,33 +67,32 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
 
       if (error) throw error
 
+      const uploadedPath = data.path
       const { data: urlData } = supabase.storage
         .from('member-photos')
-        .getPublicUrl(data.path)
+        .getPublicUrl(uploadedPath)
 
       const publicUrl = urlData.publicUrl
-      setPreviewUrl(publicUrl)
-      onUpload(publicUrl)
       setUploading(false)
+      setExtracting(true)
 
-      // 업로드 완료 후 descriptor 추출
-      if (onDescriptor) {
-        setExtracting(true)
-        setExtractError(null)
-        try {
-          const result = await extractDescriptorFromUrl(publicUrl)
-          if (result.success) {
-            onDescriptor(result.descriptor)
-          } else {
-            setExtractError(getExtractFailMessage(result.reason))
-            onDescriptor(null)
-          }
-        } catch {
-          setExtractError('얼굴 분석 중 오류가 발생했어요. 다른 사진으로 시도해 주세요.')
-          onDescriptor(null)
-        } finally {
-          setExtracting(false)
+      try {
+        const result = await extractDescriptorFromUrl(publicUrl)
+        if (result.success) {
+          // 특징점 확보 성공 → 사진 등록
+          setPreviewUrl(publicUrl)
+          onUpload(publicUrl)
+          onDescriptor?.(result.descriptor)
+        } else {
+          // 특징점 확보 실패 → 업로드 파일 삭제, 사진 등록 안 함
+          await supabase.storage.from('member-photos').remove([uploadedPath])
+          setExtractError(getExtractFailMessage(result.reason))
         }
+      } catch {
+        await supabase.storage.from('member-photos').remove([uploadedPath])
+        setExtractError('얼굴 분석 중 오류가 발생했어요. 다른 사진으로 시도해 주세요.')
+      } finally {
+        setExtracting(false)
       }
     } catch {
       alert('사진 업로드에 실패했습니다')

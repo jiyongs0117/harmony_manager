@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { extractDescriptorFromUrl } from '@/lib/face-extract'
-import { updateFaceDescriptor } from '@/actions/members'
+import { updateFaceDescriptor, clearMemberPhoto } from '@/actions/members'
 
 type SyncState = 'idle' | 'running' | 'done'
 
@@ -71,11 +71,13 @@ export function BulkDescriptorSync() {
           await updateFaceDescriptor(member.id, result.descriptor)
           succeeded++
         } else {
-          // 얼굴 미감지 또는 분석 오류
+          // 얼굴 미감지 또는 분석 오류 → photo_url도 null 처리
+          await clearMemberPhoto(member.id)
           failed++
           failedNames.push(member.name)
         }
       } catch {
+        await clearMemberPhoto(member.id)
         failed++
         failedNames.push(member.name)
       }
