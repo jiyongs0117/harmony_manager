@@ -2,10 +2,6 @@
 
 import { useRef, useState, useEffect, useCallback } from 'react'
 import * as faceapi from 'face-api.js'
-import {
-  getCachedDescriptor,
-  setCachedDescriptor,
-} from '@/lib/face-descriptors'
 
 export interface MemberWithPhoto {
   id: string
@@ -84,7 +80,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           const member = members[i]
           memberMap.set(member.id, member)
 
-          // 1) DB에 저장된 descriptor가 있으면 바로 사용
+          // DB에 저장된 descriptor가 있으면 사용, 없으면 건너뜀
           if (member.face_descriptor && member.face_descriptor.length === 128) {
             labeledDescriptors.push(
               new faceapi.LabeledFaceDescriptors(
@@ -92,32 +88,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
                 [new Float32Array(member.face_descriptor)]
               )
             )
-            setProgress({ current: i + 1, total })
-            continue
-          }
-
-          // 2) 브라우저 캐시 확인
-          const cached = await getCachedDescriptor(member.id, member.photo_url)
-          if (cached) {
-            labeledDescriptors.push(
-              new faceapi.LabeledFaceDescriptors(member.id, [cached])
-            )
-            setProgress({ current: i + 1, total })
-            continue
-          }
-
-          // 3) 사진에서 직접 추출 (fallback)
-          try {
-            const descriptor = await extractDescriptorFromUrl(member.photo_url)
-            if (descriptor) {
-              await setCachedDescriptor(member.id, member.photo_url, descriptor)
-              labeledDescriptors.push(
-                new faceapi.LabeledFaceDescriptors(member.id, [descriptor])
-              )
-            } else {
-              skipped.push(member)
-            }
-          } catch {
+          } else {
             skipped.push(member)
           }
 
@@ -169,28 +140,6 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [status])
-
-  async function extractDescriptorFromUrl(
-    url: string
-  ): Promise<Float32Array | null> {
-    return new Promise((resolve) => {
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.onload = async () => {
-        try {
-          const detection = await faceapi
-            .detectSingleFace(img, new faceapi.SsdMobilenetv1Options())
-            .withFaceLandmarks()
-            .withFaceDescriptor()
-          resolve(detection ? detection.descriptor : null)
-        } catch {
-          resolve(null)
-        }
-      }
-      img.onerror = () => resolve(null)
-      img.src = url
-    })
-  }
 
   function detectLoop() {
     if (!isDetectingRef.current) return
