@@ -80,8 +80,8 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     for (let i = 0; i < targets.length; i++) {
       const member = targets[i]
       const desc = await extractDescriptorFromUrl(member.photo_url)
-      if (desc) {
-        const result = await updateFaceDescriptor(member.id, desc)
+      if (desc.success) {
+        const result = await updateFaceDescriptor(member.id, desc.descriptor)
         if (result.success) successCount++
       }
       setSyncProgress({ current: i + 1, total: targets.length })
