@@ -11,14 +11,13 @@ interface FoundMember {
 }
 
 /**
- * 조 + 이름으로 단원 검색 (인증 불필요 퍼블릭 액션)
+ * 이름으로 단원 목록 검색 (2글자 이상, 최대 10명)
  */
-export async function findMemberByNameAndGroup(
+export async function searchMembersByName(
   name: string,
-  groupNumber: string,
-): Promise<{ member?: FoundMember; error?: string }> {
-  if (!name.trim() || !groupNumber.trim()) {
-    return { error: '이름과 조를 모두 입력해주세요.' }
+): Promise<{ members?: FoundMember[]; error?: string }> {
+  if (!name.trim() || name.trim().length < 2) {
+    return { members: [] }
   }
 
   const supabase = createServiceClient()
@@ -26,20 +25,16 @@ export async function findMemberByNameAndGroup(
   const { data, error } = await supabase
     .from('members')
     .select('id, name, group_number, part, department')
-    .eq('name', name.trim())
-    .eq('group_number', groupNumber.trim())
+    .ilike('name', `%${name.trim()}%`)
     .or('status.eq.활동,status.is.null')
-    .maybeSingle()
+    .order('name')
+    .limit(10)
 
   if (error) {
-    return { error: '검색 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' }
+    return { error: '검색 중 오류가 발생했습니다.' }
   }
 
-  if (!data) {
-    return { error: '해당 단원을 찾을 수 없습니다. 이름과 조를 다시 확인해주세요.' }
-  }
-
-  return { member: data }
+  return { members: data ?? [] }
 }
 
 /**
