@@ -10,7 +10,7 @@ export default async function RecognizePage() {
   let members: MemberWithPhoto[] = []
   const { data: membersWithDesc, error: descError } = await supabase
     .from('members')
-    .select('id, name, department, part, group_number, photo_url, face_descriptor')
+    .select('id, name, department, part, group_number, photo_url, face_descriptor, face_descriptors')
     .or('status.eq.활동,status.is.null')
     .not('photo_url', 'is', null)
     .order('name')

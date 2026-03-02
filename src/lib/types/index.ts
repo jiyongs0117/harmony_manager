@@ -38,6 +38,7 @@ export interface Member {
   photo_url: string | null
   seat_number: string | null
   face_descriptor: number[] | null
+  face_descriptors: number[][] | null
   status: string | null
   created_by: string | null
   created_at: string

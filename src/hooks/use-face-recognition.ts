@@ -11,6 +11,7 @@ export interface MemberWithPhoto {
   group_number: string | null
   photo_url: string
   face_descriptor?: number[] | null
+  face_descriptors?: number[][] | null
 }
 
 export interface MatchResult {
@@ -80,13 +81,24 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           const member = members[i]
           memberMap.set(member.id, member)
 
-          // DB에 저장된 descriptor가 있으면 사용, 없으면 건너뜀
-          if (member.face_descriptor && member.face_descriptor.length === 128) {
+          // face_descriptors(다각도, 복수) 우선 사용, 없으면 face_descriptor(단일) 폴백
+          const descriptorArrays: Float32Array[] = []
+
+          if (
+            member.face_descriptors &&
+            member.face_descriptors.length > 0 &&
+            member.face_descriptors.every((d) => d.length === 128)
+          ) {
+            descriptorArrays.push(
+              ...member.face_descriptors.map((d) => new Float32Array(d))
+            )
+          } else if (member.face_descriptor && member.face_descriptor.length === 128) {
+            descriptorArrays.push(new Float32Array(member.face_descriptor))
+          }
+
+          if (descriptorArrays.length > 0) {
             labeledDescriptors.push(
-              new faceapi.LabeledFaceDescriptors(
-                member.id,
-                [new Float32Array(member.face_descriptor)]
-              )
+              new faceapi.LabeledFaceDescriptors(member.id, descriptorArrays)
             )
           } else {
             skipped.push(member)
