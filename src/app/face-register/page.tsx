@@ -1,10 +1,16 @@
-import { createServiceClient } from '@/lib/supabase/service'
+import { createClient } from '@supabase/supabase-js'
 import { FaceRegisterClient } from '@/components/face-register/face-register-client'
 
-export default async function FaceRegisterPage() {
-  const supabase = createServiceClient()
+// 빌드 시 정적 생성 방지 (런타임에서만 실행)
+export const dynamic = 'force-dynamic'
 
-  // 활동 중인 단원의 조 목록 조회 (중복 제거)
+export default async function FaceRegisterPage() {
+  // 조 목록 조회는 anon 키로 충분 (읽기 전용)
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  )
+
   const { data } = await supabase
     .from('members')
     .select('group_number')
