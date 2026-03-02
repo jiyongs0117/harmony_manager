@@ -43,6 +43,9 @@ export function FaceRegisterClient() {
   const [searchError, setSearchError] = useState<string | null>(null)
   const [foundMember, setFoundMember] = useState<FoundMember | null>(null)
 
+  // 동의 상태
+  const [privacyConsent, setPrivacyConsent] = useState(false)
+
   // 캡처 상태
   const [currentAngleIndex, setCurrentAngleIndex] = useState(0)
   const [capturedCount, setCapturedCount] = useState(0)
@@ -63,22 +66,94 @@ export function FaceRegisterClient() {
   const capturedDescriptorsRef = useRef<number[][]>([])
   const currentAngleIndexRef = useRef(0)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const privacyConsentRef = useRef(false)
 
   useEffect(() => {
     currentAngleIndexRef.current = currentAngleIndex
   }, [currentAngleIndex])
 
+  useEffect(() => {
+    privacyConsentRef.current = privacyConsent
+  }, [privacyConsent])
+
   // ─── 카메라 정리 ────────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
     isActiveRef.current = false
     cancelAnimationFrame(animFrameRef.current)
-    clearCountdownTimer()
+    if (countdownTimerRef.current) {
+      clearTimeout(countdownTimerRef.current)
+      countdownTimerRef.current = null
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
   }, [])
 
   useEffect(() => () => stopCamera(), [stopCamera])
+
+  // ─── 카메라 초기화 useEffect ──────────────────────────────────────────
+  // step이 'camera-init'으로 바뀐 뒤 React가 video 요소를 DOM에 마운트한 다음
+  // useEffect가 실행되므로 videoRef.current가 항상 유효합니다.
+  useEffect(() => {
+    if (step !== 'camera-init') return
+
+    let cancelled = false
+
+    ;(async () => {
+      try {
+        await Promise.all([
+          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ])
+
+        if (cancelled) return
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        })
+
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
+
+        if (!videoRef.current) {
+          stream.getTracks().forEach((t) => t.stop())
+          setCameraError('카메라 초기화 오류가 발생했습니다. 다시 시도해주세요.')
+          setStep('found')
+          return
+        }
+
+        videoRef.current.srcObject = stream
+        streamRef.current = stream
+
+        videoRef.current.onloadedmetadata = () => {
+          if (cancelled) return
+          videoRef.current?.play()
+          setStep('capturing')
+          isActiveRef.current = true
+          capturedDescriptorsRef.current = []
+          setCapturedCount(0)
+          setCurrentAngleIndex(0)
+          currentAngleIndexRef.current = 0
+          captureLockedRef.current = false
+          lastDetectionRef.current = 0
+          detectionLoop()
+        }
+      } catch {
+        if (!cancelled) {
+          setCameraError('카메라 접근 권한이 필요합니다. 브라우저 설정에서 카메라를 허용해주세요.')
+          setStep('found')
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── 이름 입력 디바운스 검색 ──────────────────────────────────────────
   useEffect(() => {
@@ -108,46 +183,16 @@ export function FaceRegisterClient() {
   function selectMember(member: FoundMember) {
     setFoundMember(member)
     setSearchResults([])
+    setPrivacyConsent(false)
     setStep('found')
   }
 
-  // ─── 카메라 & 모델 초기화 ────────────────────────────────────────────
-  async function startFaceCapture() {
-    setStep('camera-init')
+  // ─── 얼굴 등록 시작 버튼 핸들러 ──────────────────────────────────────
+  // 비동기 카메라 초기화는 useEffect에서 처리 (step 변경 감지)
+  function handleStartFaceCapture() {
     setCameraError(null)
-
-    try {
-      await Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      ])
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      })
-
-      if (!videoRef.current) return
-      videoRef.current.srcObject = stream
-      streamRef.current = stream
-
-      videoRef.current.onloadedmetadata = () => {
-        videoRef.current?.play()
-        setStep('capturing')
-        isActiveRef.current = true
-        capturedDescriptorsRef.current = []
-        setCapturedCount(0)
-        setCurrentAngleIndex(0)
-        currentAngleIndexRef.current = 0
-        captureLockedRef.current = false
-        lastDetectionRef.current = 0
-        detectionLoop()
-      }
-    } catch {
-      setCameraError('카메라 접근 권한이 필요합니다. 브라우저 설정에서 카메라를 허용해주세요.')
-      setStep('found')
-    }
+    setSaveError(null)
+    setStep('camera-init')
   }
 
   // ─── 감지 루프 ─────────────────────────────────────────────────────
@@ -274,7 +319,11 @@ export function FaceRegisterClient() {
     setStep('processing')
     setSaveError(null)
 
-    const result = await updateFaceDescriptors(foundMember.id, descriptors)
+    const result = await updateFaceDescriptors(
+      foundMember.id,
+      descriptors,
+      privacyConsentRef.current,
+    )
 
     if (result.error) {
       setSaveError(result.error)
@@ -293,6 +342,7 @@ export function FaceRegisterClient() {
     setFoundMember(null)
     setSearchError(null)
     setSaveError(null)
+    setPrivacyConsent(false)
     setCurrentAngleIndex(0)
     setCapturedCount(0)
     setFaceDetected(false)
@@ -302,13 +352,15 @@ export function FaceRegisterClient() {
   }
 
   const currentAngle = CAPTURE_ANGLES[currentAngleIndex]
+  const isCameraActive = step === 'camera-init' || step === 'capturing'
+  const isCapturing = step === 'capturing'
 
   // ─── 렌더 ─────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-[100dvh] bg-black overflow-hidden">
 
       {/* 헤더 */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-sm z-10">
+      <div className="flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-sm z-10 flex-shrink-0">
         {(step === 'found' || step === 'capturing') && (
           <button
             onClick={step === 'capturing'
@@ -324,7 +376,7 @@ export function FaceRegisterClient() {
         )}
         <h1 className="text-white font-semibold text-lg flex-1">얼굴 등록</h1>
 
-        {step === 'capturing' && (
+        {isCapturing && (
           <div className="flex gap-2">
             {CAPTURE_ANGLES.map((_, i) => (
               <div key={i} className={cn(
@@ -338,198 +390,256 @@ export function FaceRegisterClient() {
       </div>
 
       {/* ── 검색 단계 ── */}
-      {(step === 'search' || step === 'found' || step === 'camera-init') && (
+      {step === 'search' && (
         <div className="flex-1 flex flex-col px-6 py-8 gap-5 bg-zinc-950 overflow-y-auto">
+          <div className="text-center pt-2">
+            <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+              </svg>
+            </div>
+            <p className="text-white font-semibold text-xl">본인 확인</p>
+            <p className="text-white/50 text-sm mt-1">이름을 입력하면 목록이 나타납니다</p>
+          </div>
 
-          {step === 'search' && (
-            <>
-              <div className="text-center pt-2">
-                <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                  </svg>
-                </div>
-                <p className="text-white font-semibold text-xl">본인 확인</p>
-                <p className="text-white/50 text-sm mt-1">이름을 입력하면 목록이 나타납니다</p>
+          {/* 이름 검색 입력 */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-white/70 text-sm font-medium">이름</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                placeholder="이름 2글자 이상 입력"
+                className="w-full bg-zinc-800 text-white rounded-xl px-4 py-3.5 text-base placeholder-white/30 border border-zinc-700 focus:outline-none focus:border-white/40 pr-10"
+                autoComplete="off"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                {isSearching ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : nameInput.length > 0 ? (
+                  <button onClick={() => setNameInput('')} className="text-white/40 hover:text-white/70">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                ) : null}
               </div>
+            </div>
 
-              {/* 이름 검색 입력 */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-white/70 text-sm font-medium">이름</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    placeholder="이름 2글자 이상 입력"
-                    className="w-full bg-zinc-800 text-white rounded-xl px-4 py-3.5 text-base placeholder-white/30 border border-zinc-700 focus:outline-none focus:border-white/40 pr-10"
-                    autoComplete="off"
-                  />
-                  {/* 로딩 / 클리어 */}
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    {isSearching ? (
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : nameInput.length > 0 ? (
-                      <button onClick={() => setNameInput('')} className="text-white/40 hover:text-white/70">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* 검색 결과 리스트 */}
-                {nameInput.trim().length >= 2 && !isSearching && (
-                  <div className="flex flex-col gap-1 mt-1">
-                    {searchError && (
-                      <p className="text-red-400 text-sm px-1">{searchError}</p>
-                    )}
-                    {!searchError && searchResults.length === 0 && (
-                      <p className="text-white/40 text-sm text-center py-4">
-                        검색 결과가 없습니다
+            {/* 검색 결과 리스트 */}
+            {nameInput.trim().length >= 2 && !isSearching && (
+              <div className="flex flex-col gap-1 mt-1">
+                {searchError && (
+                  <p className="text-red-400 text-sm px-1">{searchError}</p>
+                )}
+                {!searchError && searchResults.length === 0 && (
+                  <p className="text-white/40 text-sm text-center py-4">
+                    검색 결과가 없습니다
+                  </p>
+                )}
+                {searchResults.map((member) => (
+                  <button
+                    key={member.id}
+                    onClick={() => selectMember(member)}
+                    className="flex items-center justify-between bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 rounded-xl px-4 py-3.5 text-left transition-colors"
+                  >
+                    <div>
+                      <p className="text-white font-semibold text-base">{member.name}</p>
+                      <p className="text-white/50 text-sm mt-0.5">
+                        {member.department} · {member.part}
+                        {member.group_number && ` · ${member.group_number}`}
                       </p>
-                    )}
-                    {searchResults.map((member) => (
-                      <button
-                        key={member.id}
-                        onClick={() => selectMember(member)}
-                        className="flex items-center justify-between bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 rounded-xl px-4 py-3.5 text-left transition-colors"
-                      >
-                        <div>
-                          <p className="text-white font-semibold text-base">{member.name}</p>
-                          <p className="text-white/50 text-sm mt-0.5">
-                            {member.department} · {member.part}
-                            {member.group_number && ` · ${member.group_number}`}
-                          </p>
-                        </div>
-                        <svg className="w-5 h-5 text-white/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {nameInput.trim().length > 0 && nameInput.trim().length < 2 && (
-                  <p className="text-white/30 text-xs px-1">2글자 이상 입력해주세요</p>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* ── 단원 확인 단계 ── */}
-          {(step === 'found' || step === 'camera-init') && foundMember && (
-            <>
-              <div className="text-center pt-4">
-                <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <p className="text-white/60 text-sm">
-                  {foundMember.department} · {foundMember.part}
-                  {foundMember.group_number && ` · ${foundMember.group_number}`}
-                </p>
-                <p className="text-white font-bold text-2xl mt-1">{foundMember.name}</p>
-              </div>
-
-              {cameraError && (
-                <p className="text-red-400 text-sm text-center bg-red-950/30 rounded-xl px-4 py-3">{cameraError}</p>
-              )}
-              {saveError && (
-                <p className="text-red-400 text-sm text-center bg-red-950/30 rounded-xl px-4 py-3">{saveError}</p>
-              )}
-
-              <div className="bg-zinc-900 rounded-xl px-4 py-4 flex flex-col gap-2">
-                <p className="text-white/60 text-sm font-medium">촬영 안내</p>
-                {CAPTURE_ANGLES.map((angle, i) => (
-                  <div key={angle} className="flex items-center gap-2 text-white/50 text-sm">
-                    <span className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center text-xs flex-shrink-0">{i + 1}</span>
-                    {ANGLE_GUIDES[angle]}
-                  </div>
+                    </div>
+                    <svg className="w-5 h-5 text-white/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
                 ))}
-                <p className="text-white/30 text-xs mt-1">얼굴이 감지되면 3초 후 자동으로 촬영됩니다</p>
               </div>
+            )}
 
-              <button
-                onClick={startFaceCapture}
-                disabled={step === 'camera-init'}
-                className="w-full bg-white text-black font-semibold py-4 rounded-xl text-base disabled:opacity-50 active:scale-95 transition-transform"
-              >
-                {step === 'camera-init' ? '카메라 준비 중...' : '얼굴 등록 시작'}
-              </button>
-            </>
-          )}
+            {nameInput.trim().length > 0 && nameInput.trim().length < 2 && (
+              <p className="text-white/30 text-xs px-1">2글자 이상 입력해주세요</p>
+            )}
+          </div>
         </div>
       )}
 
-      {/* ── 캡처 단계 ── */}
-      {step === 'capturing' && (
+      {/* ── 단원 확인 단계 ── */}
+      {step === 'found' && foundMember && (
+        <div className="flex-1 flex flex-col px-6 py-8 gap-5 bg-zinc-950 overflow-y-auto">
+          {/* 단원 정보 */}
+          <div className="text-center pt-4">
+            <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="text-white/60 text-sm">
+              {foundMember.department} · {foundMember.part}
+              {foundMember.group_number && ` · ${foundMember.group_number}`}
+            </p>
+            <p className="text-white font-bold text-2xl mt-1">{foundMember.name}</p>
+          </div>
+
+          {cameraError && (
+            <p className="text-red-400 text-sm text-center bg-red-950/30 rounded-xl px-4 py-3">{cameraError}</p>
+          )}
+          {saveError && (
+            <p className="text-red-400 text-sm text-center bg-red-950/30 rounded-xl px-4 py-3">{saveError}</p>
+          )}
+
+          {/* 개인정보 동의 체크박스 */}
+          <button
+            type="button"
+            onClick={() => setPrivacyConsent((v) => !v)}
+            className={cn(
+              'flex items-start gap-3 rounded-xl px-4 py-4 text-left border-2 transition-all',
+              privacyConsent
+                ? 'bg-blue-950/40 border-blue-500/50'
+                : 'bg-zinc-900 border-zinc-700 active:border-zinc-500',
+            )}
+          >
+            {/* 체크박스 */}
+            <div className={cn(
+              'w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5 border-2 transition-colors',
+              privacyConsent ? 'bg-white border-white' : 'border-zinc-500',
+            )}>
+              {privacyConsent && (
+                <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+            {/* 동의 내용 */}
+            <div>
+              <p className="text-white text-sm font-medium leading-snug">
+                개인정보 수집 및 이용에 동의합니다{' '}
+                <span className="text-red-400 text-xs font-normal">(필수)</span>
+              </p>
+              <p className="text-white/40 text-xs mt-1.5 leading-relaxed">
+                · 수집항목: 얼굴 특징점 데이터<br />
+                · 이용목적: 출석 자동 인식 서비스 제공<br />
+                · 보유기간: 단원 탈퇴 시까지
+              </p>
+            </div>
+          </button>
+
+          {/* 촬영 안내 */}
+          <div className="bg-zinc-900 rounded-xl px-4 py-4 flex flex-col gap-2">
+            <p className="text-white/60 text-sm font-medium">촬영 안내</p>
+            {CAPTURE_ANGLES.map((angle, i) => (
+              <div key={angle} className="flex items-center gap-2 text-white/50 text-sm">
+                <span className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center text-xs flex-shrink-0">{i + 1}</span>
+                {ANGLE_GUIDES[angle]}
+              </div>
+            ))}
+            <p className="text-white/30 text-xs mt-1">얼굴이 감지되면 3초 후 자동으로 촬영됩니다</p>
+          </div>
+
+          <button
+            onClick={handleStartFaceCapture}
+            disabled={!privacyConsent}
+            className="w-full bg-white text-black font-semibold py-4 rounded-xl text-base disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all"
+          >
+            얼굴 등록 시작
+          </button>
+        </div>
+      )}
+
+      {/* ── 카메라 패널 (camera-init + capturing 공유) ──────────────────────
+           video/canvas를 항상 DOM에 유지하여 useEffect에서 ref가 유효하도록 함 */}
+      {isCameraActive && (
         <>
           <div className="relative flex-1 overflow-hidden bg-black">
-            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
-            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none scale-x-[-1]" />
+            {/* video·canvas: isCameraActive이면 항상 DOM에 존재 */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover scale-x-[-1]"
+            />
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none scale-x-[-1]"
+            />
 
-            {/* 타원 가이드 */}
-            <div className="absolute inset-0 flex items-center pointer-events-none" style={{ paddingBottom: '15%' }}>
-              <div className="w-full flex justify-center">
-                <div className={cn(
-                  'rounded-full border-2 transition-all duration-300',
-                  faceDetected && countdown === null ? 'border-green-400 border-dashed' :
-                  countdown !== null ? 'border-green-500 border-solid animate-pulse' :
-                  'border-white/40 border-dashed',
-                )} style={{ width: '62vw', height: '78vw', maxWidth: '230px', maxHeight: '290px' }} />
-              </div>
-            </div>
-
-            {countdown !== null && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingBottom: '15%' }}>
-                <span className="text-white text-8xl font-bold drop-shadow-2xl opacity-90">{countdown}</span>
-              </div>
-            )}
-
-            {capturedCount > 0 && capturedCount < CAPTURE_ANGLES.length && (
-              <div className="absolute top-4 left-0 right-0 flex justify-center pointer-events-none">
-                <div className="bg-green-500 text-white text-sm font-medium px-4 py-1.5 rounded-full">
-                  {ANGLE_LABELS[CAPTURE_ANGLES[capturedCount - 1]]} 완료 ✓
-                </div>
+            {/* 카메라 준비 중 오버레이 */}
+            {step === 'camera-init' && (
+              <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-4">
+                <div className="w-14 h-14 rounded-full border-4 border-white/20 border-t-white animate-spin" />
+                <p className="text-white/70 text-base">카메라 준비 중...</p>
               </div>
             )}
-          </div>
 
-          {/* 하단 안내 */}
-          <div className="bg-black px-6 py-5">
-            <div className="text-center mb-4">
-              <p className="text-white font-semibold text-lg">
-                {ANGLE_LABELS[currentAngle]} 촬영 ({currentAngleIndex + 1} / {CAPTURE_ANGLES.length})
-              </p>
-              <p className="text-white/50 text-sm mt-1">
-                {faceDetected
-                  ? countdown !== null ? `${countdown}초 후 자동 촬영됩니다` : '얼굴이 감지되었습니다'
-                  : ANGLE_GUIDES[currentAngle]}
-              </p>
-            </div>
-
-            <div className="flex justify-center gap-4">
-              {CAPTURE_ANGLES.map((angle, i) => (
-                <div key={angle} className="flex flex-col items-center gap-1.5">
-                  <div className={cn(
-                    'w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300',
-                    i < capturedCount ? 'bg-green-500 text-white scale-105' :
-                    i === currentAngleIndex ? 'bg-white text-black scale-110' : 'bg-white/15 text-white/40',
-                  )}>
-                    {i < capturedCount ? '✓' : i + 1}
+            {/* 캡처 중 오버레이 */}
+            {isCapturing && (
+              <>
+                {/* 타원 가이드 */}
+                <div className="absolute inset-0 flex items-center pointer-events-none" style={{ paddingBottom: '15%' }}>
+                  <div className="w-full flex justify-center">
+                    <div className={cn(
+                      'rounded-full border-2 transition-all duration-300',
+                      faceDetected && countdown === null ? 'border-green-400 border-dashed' :
+                      countdown !== null ? 'border-green-500 border-solid animate-pulse' :
+                      'border-white/40 border-dashed',
+                    )} style={{ width: '62vw', height: '78vw', maxWidth: '230px', maxHeight: '290px' }} />
                   </div>
-                  <span className={cn('text-xs transition-colors',
-                    i < capturedCount ? 'text-green-400' :
-                    i === currentAngleIndex ? 'text-white' : 'text-white/30',
-                  )}>{ANGLE_LABELS[angle]}</span>
                 </div>
-              ))}
-            </div>
+
+                {countdown !== null && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingBottom: '15%' }}>
+                    <span className="text-white text-8xl font-bold drop-shadow-2xl opacity-90">{countdown}</span>
+                  </div>
+                )}
+
+                {capturedCount > 0 && capturedCount < CAPTURE_ANGLES.length && (
+                  <div className="absolute top-4 left-0 right-0 flex justify-center pointer-events-none">
+                    <div className="bg-green-500 text-white text-sm font-medium px-4 py-1.5 rounded-full">
+                      {ANGLE_LABELS[CAPTURE_ANGLES[capturedCount - 1]]} 완료 ✓
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
+
+          {/* 하단 안내 - 촬영 중에만 */}
+          {isCapturing && (
+            <div className="bg-black px-6 py-5 flex-shrink-0">
+              <div className="text-center mb-4">
+                <p className="text-white font-semibold text-lg">
+                  {ANGLE_LABELS[currentAngle]} 촬영 ({currentAngleIndex + 1} / {CAPTURE_ANGLES.length})
+                </p>
+                <p className="text-white/50 text-sm mt-1">
+                  {faceDetected
+                    ? countdown !== null ? `${countdown}초 후 자동 촬영됩니다` : '얼굴이 감지되었습니다'
+                    : ANGLE_GUIDES[currentAngle]}
+                </p>
+              </div>
+
+              <div className="flex justify-center gap-4">
+                {CAPTURE_ANGLES.map((angle, i) => (
+                  <div key={angle} className="flex flex-col items-center gap-1.5">
+                    <div className={cn(
+                      'w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300',
+                      i < capturedCount ? 'bg-green-500 text-white scale-105' :
+                      i === currentAngleIndex ? 'bg-white text-black scale-110' : 'bg-white/15 text-white/40',
+                    )}>
+                      {i < capturedCount ? '✓' : i + 1}
+                    </div>
+                    <span className={cn('text-xs transition-colors',
+                      i < capturedCount ? 'text-green-400' :
+                      i === currentAngleIndex ? 'text-white' : 'text-white/30',
+                    )}>{ANGLE_LABELS[angle]}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 

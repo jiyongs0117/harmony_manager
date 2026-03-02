@@ -38,12 +38,13 @@ export async function searchMembersByName(
 }
 
 /**
- * 다각도 얼굴 descriptor 배열 저장 (인증 불필요 퍼블릭 액션)
+ * 다각도 얼굴 descriptor 배열 + 개인정보 동의 저장 (인증 불필요 퍼블릭 액션)
  * 서비스 롤 키를 사용하여 RLS 우회
  */
 export async function updateFaceDescriptors(
   memberId: string,
   descriptors: number[][],
+  privacyConsent: boolean,
 ): Promise<{ success?: boolean; error?: string }> {
   if (!memberId) {
     return { error: '단원 ID가 없습니다.' }
@@ -59,7 +60,11 @@ export async function updateFaceDescriptors(
 
   const { error } = await supabase
     .from('members')
-    .update({ face_descriptors: descriptors })
+    .update({
+      face_descriptors: descriptors,
+      privacy_consent: privacyConsent,
+      privacy_consent_at: new Date().toISOString(),
+    })
     .eq('id', memberId)
 
   if (error) {
