@@ -42,6 +42,7 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
   const [uploading, setUploading] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
+  const [qualityWarnings, setQualityWarnings] = useState<string[]>([])
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentUrl)
   const cameraRef = useRef<HTMLInputElement>(null)
   const albumRef = useRef<HTMLInputElement>(null)
@@ -51,6 +52,7 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
     if (!file) return
 
     setExtractError(null)
+    setQualityWarnings([])
     setUploading(true)
 
     try {
@@ -79,10 +81,13 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
       try {
         const result = await extractDescriptorFromUrl(publicUrl)
         if (result.success) {
-          // 특징점 확보 성공 → 사진 등록
+          // 특징점 확보 성공 → 사진 등록 (품질 경고는 비차단)
           setPreviewUrl(publicUrl)
           onUpload(publicUrl)
           onDescriptor?.(result.descriptor)
+          if (result.quality.level === 'warning') {
+            setQualityWarnings(result.quality.warnings)
+          }
         } else {
           // 특징점 확보 실패 → 업로드 파일 삭제, 사진 등록 안 함
           await supabase.storage.from('member-photos').remove([uploadedPath])
@@ -128,6 +133,14 @@ export function MemberPhotoUpload({ currentUrl, memberName, onUpload, onDescript
             <p className="text-xs text-destructive text-center max-w-[180px] leading-tight">
               ⚠️ {extractError}
             </p>
+          )}
+          {qualityWarnings.length > 0 && (
+            <div className="max-w-[200px] rounded-md bg-amber-50 border border-amber-200 px-3 py-2 flex flex-col gap-1">
+              <p className="text-xs font-medium text-amber-700">📸 사진 품질 안내</p>
+              {qualityWarnings.map((w, i) => (
+                <p key={i} className="text-xs text-amber-600 leading-tight">• {w}</p>
+              ))}
+            </div>
           )}
         <div className="flex gap-3">
           <button
