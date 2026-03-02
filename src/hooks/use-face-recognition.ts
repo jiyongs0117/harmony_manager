@@ -29,7 +29,7 @@ export type RecognitionStatus =
 
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
-const MATCH_THRESHOLD = 0.4
+const MATCH_THRESHOLD = 0.5
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')
@@ -164,7 +164,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
 
       try {
         const detections = await faceapi
-          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options())
+          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
           .withFaceLandmarks()
           .withFaceDescriptors()
 
@@ -235,7 +235,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode, width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       })
 
