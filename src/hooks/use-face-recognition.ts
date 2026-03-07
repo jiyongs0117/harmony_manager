@@ -31,6 +31,7 @@ export type RecognitionStatus =
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
 const MATCH_THRESHOLD = 0.5
+const UPSCALE_FACTOR = 1.5  // 작은 얼굴(멀리 있는 사람) 탐지를 위해 프레임 업스케일
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')
@@ -48,6 +49,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
   const lastDetectionRef = useRef<number>(0)
   const isDetectingRef = useRef(false)
   const membersMapRef = useRef<Map<string, MemberWithPhoto>>(new Map())
+  const upscaleCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   // Load models on mount
   useEffect(() => {
@@ -175,11 +177,24 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
       faceapi.matchDimensions(canvas, displaySize)
 
       try {
+        // 멀리 있는 작은 얼굴도 탐지하기 위해 업스케일된 캔버스에서 탐지
+        if (!upscaleCanvasRef.current) {
+          upscaleCanvasRef.current = document.createElement('canvas')
+        }
+        const upscaleCanvas = upscaleCanvasRef.current
+        upscaleCanvas.width = Math.round(video.videoWidth * UPSCALE_FACTOR)
+        upscaleCanvas.height = Math.round(video.videoHeight * UPSCALE_FACTOR)
+        const upscaleCtx = upscaleCanvas.getContext('2d')
+        if (upscaleCtx) {
+          upscaleCtx.drawImage(video, 0, 0, upscaleCanvas.width, upscaleCanvas.height)
+        }
+
         const detections = await faceapi
-          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+          .detectAllFaces(upscaleCanvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 }))
           .withFaceLandmarks()
           .withFaceDescriptors()
 
+        // 업스케일된 좌표를 원본 비디오 크기로 변환
         const resized = faceapi.resizeResults(detections, displaySize)
 
         // Clear canvas
@@ -247,7 +262,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: mode, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       })
 
