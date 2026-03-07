@@ -64,6 +64,7 @@ export function FaceRegisterClient() {
   const captureLockedRef = useRef(false)
   const countdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const capturedDescriptorsRef = useRef<number[][]>([])
+  const capturedFrontPhotoRef = useRef<string | null>(null)
   const currentAngleIndexRef = useRef(0)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const privacyConsentRef = useRef(false)
@@ -295,6 +296,21 @@ export function FaceRegisterClient() {
   }
 
   function captureAngle(descriptor: number[]) {
+    // 정면(첫 번째) 촬영 시 video 프레임을 사진으로 캡처
+    if (currentAngleIndexRef.current === 0) {
+      const video = videoRef.current
+      if (video) {
+        const photoCanvas = document.createElement('canvas')
+        photoCanvas.width = video.videoWidth
+        photoCanvas.height = video.videoHeight
+        const ctx = photoCanvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(video, 0, 0)
+          capturedFrontPhotoRef.current = photoCanvas.toDataURL('image/jpeg', 0.85)
+        }
+      }
+    }
+
     const newDescriptors = [...capturedDescriptorsRef.current, descriptor]
     capturedDescriptorsRef.current = newDescriptors
     const captured = newDescriptors.length
@@ -323,6 +339,7 @@ export function FaceRegisterClient() {
       foundMember.id,
       descriptors,
       privacyConsentRef.current,
+      capturedFrontPhotoRef.current ?? undefined,
     )
 
     if (result.error) {
@@ -348,6 +365,7 @@ export function FaceRegisterClient() {
     setFaceDetected(false)
     setCountdown(null)
     capturedDescriptorsRef.current = []
+    capturedFrontPhotoRef.current = null
     captureLockedRef.current = false
   }
 

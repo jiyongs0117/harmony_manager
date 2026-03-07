@@ -40,11 +40,13 @@ export async function searchMembersByName(
 /**
  * 다각도 얼굴 descriptor 배열 + 개인정보 동의 저장 (인증 불필요 퍼블릭 액션)
  * 서비스 롤 키를 사용하여 RLS 우회
+ * frontPhotoBase64가 제공되면 정면 사진을 member-photos 스토리지에 업로드 후 photo_url 저장
  */
 export async function updateFaceDescriptors(
   memberId: string,
   descriptors: number[][],
   privacyConsent: boolean,
+  frontPhotoBase64?: string,
 ): Promise<{ success?: boolean; error?: string }> {
   if (!memberId) {
     return { error: '단원 ID가 없습니다.' }
@@ -58,12 +60,39 @@ export async function updateFaceDescriptors(
 
   const supabase = createServiceClient()
 
+  let photoUrl: string | undefined
+
+  if (frontPhotoBase64) {
+    try {
+      const base64Data = frontPhotoBase64.replace(/^data:image\/jpeg;base64,/, '')
+      const buffer = Buffer.from(base64Data, 'base64')
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('member-photos')
+        .upload(fileName, buffer, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        })
+
+      if (!uploadError && uploadData) {
+        const { data: urlData } = supabase.storage
+          .from('member-photos')
+          .getPublicUrl(uploadData.path)
+        photoUrl = urlData.publicUrl
+      }
+    } catch {
+      // 사진 업로드 실패 시 얼굴 특징값 저장은 계속 진행
+    }
+  }
+
   const { error } = await supabase
     .from('members')
     .update({
       face_descriptors: descriptors,
       privacy_consent: privacyConsent,
       privacy_consent_at: new Date().toISOString(),
+      ...(photoUrl ? { photo_url: photoUrl } : {}),
     })
     .eq('id', memberId)
 
