@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Noto_Sans_KR } from 'next/font/google'
+import { KakaoBrowserGuide } from '@/components/ui/kakao-browser-guide'
 import './globals.css'
 
 const notoSansKR = Noto_Sans_KR({
@@ -35,6 +36,7 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className={`${notoSansKR.className} antialiased`}>
+        <KakaoBrowserGuide />
         {children}
       </body>
     </html>
