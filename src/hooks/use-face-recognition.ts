@@ -30,8 +30,8 @@ export type RecognitionStatus =
 
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
-const MATCH_THRESHOLD = 0.5        // 이 이상이면 무시 (< 80% 신뢰)
-const AUTO_CHECK_THRESHOLD = 0.35  // 이 이하면 자동 출석 체크 (≥ 90% 신뢰)
+const MATCH_THRESHOLD = 0.45       // 이 이상이면 무시 (< 85% 신뢰)
+const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 체크 (≥ 95% 신뢰)
 const UPSCALE_FACTOR = 1.5         // 작은 얼굴(멀리 있는 사람) 탐지를 위해 프레임 업스케일
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
