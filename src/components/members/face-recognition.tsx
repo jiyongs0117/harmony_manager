@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFaceRecognition, type MemberWithPhoto } from '@/hooks/use-face-recognition'
 import { upsertAttendance } from '@/actions/attendance'
@@ -19,13 +19,19 @@ interface FaceRecognitionProps {
   initialCheckedMemberIds?: string[]
 }
 
+interface AutoCheckedItem {
+  member: MemberWithPhoto
+  expiresAt: number
+}
+
 export function FaceRecognition({ members, activeEvents = [], initialCheckedMemberIds = [] }: FaceRecognitionProps) {
   const router = useRouter()
   const {
     status,
     progress,
     skippedMembers,
-    matches,
+    autoMatches,
+    manualMatches,
     videoRef,
     canvasRef,
     startCamera,
@@ -62,6 +68,68 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 })
 
+  // ── 자동 출석 체크 상태 ──
+  const [autoCheckedList, setAutoCheckedList] = useState<AutoCheckedItem[]>([])
+  const pendingAutoCheckRef = useRef<Set<string>>(new Set())
+  const checkedMembersRef = useRef<Set<string>>(new Set(initialCheckedMemberIds))
+  const selectedEventIdRef = useRef(selectedEventId)
+
+  useEffect(() => {
+    checkedMembersRef.current = checkedMembers
+  }, [checkedMembers])
+
+  useEffect(() => {
+    selectedEventIdRef.current = selectedEventId
+  }, [selectedEventId])
+
+  // 자동 출석 체크 트리거
+  useEffect(() => {
+    if (autoMatches.length === 0) return
+
+    for (const match of autoMatches) {
+      const memberId = match.member.id
+      // 이미 처리됐거나 처리 중이면 스킵
+      if (
+        checkedMembersRef.current.has(memberId) ||
+        pendingAutoCheckRef.current.has(memberId)
+      ) continue
+
+      const eventId = selectedEventIdRef.current
+      if (!eventId) continue
+
+      pendingAutoCheckRef.current.add(memberId)
+
+      upsertAttendance(eventId, [
+        { member_id: memberId, status: '출석', checked_at: new Date().toISOString() },
+      ]).then((result) => {
+        pendingAutoCheckRef.current.delete(memberId)
+        if (!result.error) {
+          // checkedMembers 업데이트
+          checkedMembersRef.current = new Set(checkedMembersRef.current).add(memberId)
+          setCheckedMembers((prev) => new Set(prev).add(memberId))
+
+          // 사이드 리스트에 10초 동안 표시
+          setAutoCheckedList((prev) => {
+            const filtered = prev.filter((item) => item.member.id !== memberId)
+            return [...filtered, { member: match.member, expiresAt: Date.now() + 10000 }]
+          })
+        }
+      })
+    }
+  }, [autoMatches]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 10초 후 사이드 리스트에서 제거
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      setAutoCheckedList((prev) => {
+        const next = prev.filter((item) => item.expiresAt > now)
+        return next.length !== prev.length ? next : prev
+      })
+    }, 500)
+    return () => clearInterval(interval)
+  }, [])
+
   // DB에 face_descriptor가 없는 멤버 수
   const membersWithoutDescriptor = members.filter(
     (m) => !m.face_descriptor || m.face_descriptor.length !== 128
@@ -91,6 +159,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     toast(`${successCount}명의 특징값 저장 완료`)
   }
 
+  // 수동 출석 체크
   const handleAttendanceCheck = async (memberId: string) => {
     if (!selectedEventId) {
       toast('진행중인 출석부가 없습니다', 'error')
@@ -113,8 +182,9 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     }
   }
 
-  const bestMatch = matches.length > 0
-    ? matches.reduce((best, m) => (m.distance < best.distance ? m : best), matches[0])
+  // 수동 체크 대상 중 가장 신뢰도 높은 매칭
+  const bestManualMatch = manualMatches.length > 0
+    ? manualMatches.reduce((best, m) => (m.distance < best.distance ? m : best), manualMatches[0])
     : null
 
   return (
@@ -153,13 +223,13 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
             className="text-white"
             disabled={status !== 'detecting'}
           >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
-            <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
-            <path d="m14 9 3-3 3 3" />
-            <path d="m10 15-3 3-3-3" />
-          </svg>
-        </button>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+              <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
+              <path d="m14 9 3-3 3 3" />
+              <path d="m10 15-3 3-3-3" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -201,10 +271,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <p className="text-white text-sm text-center">{errorMessage}</p>
-            <Button
-              size="sm"
-              onClick={() => window.location.reload()}
-            >
+            <Button size="sm" onClick={() => window.location.reload()}>
               다시 시도
             </Button>
           </div>
@@ -240,9 +307,41 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
           className="absolute top-0 left-0 w-full h-full pointer-events-none"
         />
 
+        {/* 자동 출석 체크 사이드 리스트 */}
+        {autoCheckedList.length > 0 && (
+          <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
+            {autoCheckedList.map((item) => (
+              <div
+                key={`${item.member.id}-${item.expiresAt}`}
+                className="flex items-center gap-2 bg-green-600/90 backdrop-blur-sm rounded-xl px-3 py-2.5 shadow-xl"
+              >
+                <div className="w-9 h-9 rounded-full overflow-hidden bg-white/20 flex-shrink-0 flex items-center justify-center">
+                  {item.member.photo_url ? (
+                    <img
+                      src={item.member.photo_url}
+                      alt={item.member.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-xs font-bold text-white">
+                      {getInitials(item.member.name)}
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-white text-sm font-bold leading-none truncate max-w-[80px]">
+                    {item.member.name}
+                  </p>
+                  <p className="text-green-200 text-xs mt-0.5">자동 출석 ✓</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Hint overlay */}
-        {(status === 'detecting' || status === 'ready') && matches.length === 0 && (
-          <div className="absolute bottom-24 left-0 right-0 flex justify-center">
+        {(status === 'detecting' || status === 'ready') && autoMatches.length === 0 && manualMatches.length === 0 && (
+          <div className="absolute bottom-4 left-0 right-0 flex justify-center">
             <div className="bg-black/60 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full animate-pulse">
               얼굴을 카메라에 비춰주세요
             </div>
@@ -250,8 +349,8 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         )}
       </div>
 
-      {/* Match result card */}
-      {bestMatch && (
+      {/* 수동 체크 카드 (80~90% 신뢰도) */}
+      {bestManualMatch && (
         <div className="bg-white safe-bottom flex-1 overflow-y-auto">
           {/* 진행중 출석부 선택 (2개 이상일 때만 표시) */}
           {activeEvents.length > 1 && (
@@ -271,67 +370,74 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
           )}
 
           <div className="px-4 py-4 flex items-center gap-3">
-            <button
-              onClick={() => {
-                stopCamera()
-                router.push(`/members/${bestMatch.member.id}`)
-              }}
-              className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center"
-            >
-              {bestMatch.member.photo_url ? (
-                <img
-                  src={bestMatch.member.photo_url}
-                  alt={bestMatch.member.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-xl font-semibold text-muted">
-                  {getInitials(bestMatch.member.name)}
-                </span>
-              )}
-            </button>
+            {/* 주황색 점으로 수동 체크 표시 */}
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={() => {
+                  stopCamera()
+                  router.push(`/members/${bestManualMatch.member.id}`)
+                }}
+                className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center"
+              >
+                {bestManualMatch.member.photo_url ? (
+                  <img
+                    src={bestManualMatch.member.photo_url}
+                    alt={bestManualMatch.member.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-xl font-semibold text-muted">
+                    {getInitials(bestManualMatch.member.name)}
+                  </span>
+                )}
+              </button>
+              <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-400 border-2 border-white" />
+            </div>
+
             <div className="flex-1 min-w-0">
               <button
                 onClick={() => {
                   stopCamera()
-                  router.push(`/members/${bestMatch.member.id}`)
+                  router.push(`/members/${bestManualMatch.member.id}`)
                 }}
                 className="text-left"
               >
                 <div className="flex items-baseline gap-2">
-                  {bestMatch.member.group_number && (
-                    <span className="text-lg font-bold text-muted">{bestMatch.member.group_number}조</span>
+                  {bestManualMatch.member.group_number && (
+                    <span className="text-lg font-bold text-muted">{bestManualMatch.member.group_number}조</span>
                   )}
-                  <p className="font-bold text-2xl">{bestMatch.member.name}</p>
+                  <p className="font-bold text-2xl">{bestManualMatch.member.name}</p>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1">
-                  <Badge>{bestMatch.member.department}</Badge>
-                  <Badge>{bestMatch.member.part}</Badge>
+                  <Badge>{bestManualMatch.member.department}</Badge>
+                  <Badge>{bestManualMatch.member.part}</Badge>
+                  <span className="text-xs text-amber-500 font-medium">확인 필요</span>
                 </div>
               </button>
             </div>
+
             {activeEvents.length > 0 && (
               <button
-                onClick={() => handleAttendanceCheck(bestMatch.member.id)}
-                disabled={isChecking || checkedMembers.has(bestMatch.member.id)}
+                onClick={() => handleAttendanceCheck(bestManualMatch.member.id)}
+                disabled={isChecking || checkedMembers.has(bestManualMatch.member.id)}
                 className={cn(
                   'flex-shrink-0 px-4 py-3 rounded-xl text-sm font-bold transition-colors',
-                  checkedMembers.has(bestMatch.member.id)
+                  checkedMembers.has(bestManualMatch.member.id)
                     ? 'bg-green-100 text-green-700'
                     : 'bg-primary text-white active:bg-primary/80',
                   isChecking && 'opacity-50'
                 )}
               >
-                {checkedMembers.has(bestMatch.member.id) ? '출석 ✓' : isChecking ? '처리중...' : '출석 체크'}
+                {checkedMembers.has(bestManualMatch.member.id) ? '출석 ✓' : isChecking ? '처리중...' : '출석 체크'}
               </button>
             )}
           </div>
 
-          {/* Multiple matches */}
-          {matches.length > 1 && (
+          {/* Multiple manual matches */}
+          {manualMatches.length > 1 && (
             <div className="px-4 pb-3 flex gap-2 overflow-x-auto">
-              {matches
-                .filter((m) => m !== bestMatch)
+              {manualMatches
+                .filter((m) => m !== bestManualMatch)
                 .map((match) => (
                   <button
                     key={match.member.id}

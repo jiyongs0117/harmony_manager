@@ -30,14 +30,16 @@ export type RecognitionStatus =
 
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
-const MATCH_THRESHOLD = 0.5
-const UPSCALE_FACTOR = 1.5  // 작은 얼굴(멀리 있는 사람) 탐지를 위해 프레임 업스케일
+const MATCH_THRESHOLD = 0.5        // 이 이상이면 무시 (< 80% 신뢰)
+const AUTO_CHECK_THRESHOLD = 0.35  // 이 이하면 자동 출석 체크 (≥ 90% 신뢰)
+const UPSCALE_FACTOR = 1.5         // 작은 얼굴(멀리 있는 사람) 탐지를 위해 프레임 업스케일
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const [skippedMembers, setSkippedMembers] = useState<MemberWithPhoto[]>([])
-  const [matches, setMatches] = useState<MatchResult[]>([])
+  const [autoMatches, setAutoMatches] = useState<MatchResult[]>([])    // 자동 체크 대상 (거리 ≤ 0.35)
+  const [manualMatches, setManualMatches] = useState<MatchResult[]>([]) // 수동 체크 대상 (0.35 < 거리 ≤ 0.5)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
 
@@ -153,7 +155,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     }
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [status])
+  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function detectLoop() {
     if (!isDetectingRef.current) return
@@ -203,7 +205,8 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           ctx.clearRect(0, 0, canvas.width, canvas.height)
         }
 
-        const newMatches: MatchResult[] = []
+        const newAutoMatches: MatchResult[] = []
+        const newManualMatches: MatchResult[] = []
 
         for (const detection of resized) {
           const box = detection.detection.box
@@ -214,21 +217,32 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
             if (bestMatch.label !== 'unknown') {
               const member = membersMapRef.current.get(bestMatch.label)
               if (member) {
-                newMatches.push({
+                const matchResult: MatchResult = {
                   member,
                   distance: bestMatch.distance,
                   box: { x: box.x, y: box.y, width: box.width, height: box.height },
-                })
+                }
 
-                // Draw green box with name
+                const isAutoMatch = bestMatch.distance <= AUTO_CHECK_THRESHOLD
+
+                if (isAutoMatch) {
+                  newAutoMatches.push(matchResult)
+                } else {
+                  newManualMatches.push(matchResult)
+                }
+
+                // 자동 체크: 초록 박스 / 수동 체크: 주황 박스
                 if (ctx) {
-                  ctx.strokeStyle = '#22c55e'
+                  const color = isAutoMatch ? '#22c55e' : '#f59e0b'
+                  ctx.strokeStyle = color
                   ctx.lineWidth = 3
                   ctx.strokeRect(box.x, box.y, box.width, box.height)
 
-                  const label = [member.part, member.group_number ? `${member.group_number}` : '', member.name].filter(Boolean).join(' ')
+                  const label = [member.part, member.group_number ? `${member.group_number}` : '', member.name]
+                    .filter(Boolean)
+                    .join(' ')
 
-                  ctx.fillStyle = '#22c55e'
+                  ctx.fillStyle = color
                   ctx.font = '14px sans-serif'
                   const textWidth = ctx.measureText(label).width
                   ctx.fillRect(box.x, box.y - 24, textWidth + 16, 24)
@@ -237,18 +251,13 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
                   ctx.fillText(label, box.x + 8, box.y - 7)
                 }
               }
-            } else {
-              // Draw gray box for unknown face
-              if (ctx) {
-                ctx.strokeStyle = '#9ca3af'
-                ctx.lineWidth = 2
-                ctx.strokeRect(box.x, box.y, box.width, box.height)
-              }
             }
+            // 80% 미만(unknown) 얼굴은 아무것도 그리지 않음
           }
         }
 
-        setMatches(newMatches)
+        setAutoMatches(newAutoMatches)
+        setManualMatches(newManualMatches)
       } catch {
         // Detection error, continue loop
       }
@@ -282,12 +291,13 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     } catch {
       setErrorMessage('카메라 권한이 필요합니다. 브라우저 설정에서 카메라 접근을 허용해주세요.')
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopCamera = useCallback(() => {
     isDetectingRef.current = false
     cancelAnimationFrame(animFrameRef.current)
-    setMatches([])
+    setAutoMatches([])
+    setManualMatches([])
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
@@ -322,7 +332,8 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     status,
     progress,
     skippedMembers,
-    matches,
+    autoMatches,
+    manualMatches,
     videoRef,
     canvasRef,
     startCamera,
