@@ -7,6 +7,7 @@ import {
   searchMembersByName,
   updateFaceDescriptors,
   updateMemberInfo,
+  getMemberInfo,
   type MemberInfoInput,
 } from '@/actions/public-face-register'
 
@@ -216,11 +217,26 @@ export function FaceRegisterClient() {
   }, [nameInput])
 
   // ─── 단원 선택 ─────────────────────────────────────────────────────
-  function selectMember(member: FoundMember) {
+  async function selectMember(member: FoundMember) {
     setFoundMember(member)
     setSearchResults([])
     setPrivacyConsent(false)
     setStep('found')
+
+    // 기존 DB 데이터 조회 후 폼 초기값 설정
+    const { data } = await getMemberInfo(member.id)
+    if (data) {
+      setMemberInfo({
+        church_position: data.church_position ?? '',
+        date_of_birth: data.date_of_birth ?? '',
+        district: data.district ?? '',
+        area: data.area ?? '',
+        church_registration_year: data.church_registration_year ?? '',
+        choir_join_year: data.choir_join_year ?? '',
+        address: data.address ?? '',
+        prayer_request: data.prayer_request ?? '',
+      })
+    }
   }
 
   // ─── 얼굴 등록 시작 버튼 핸들러 ──────────────────────────────────────

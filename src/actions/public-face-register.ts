@@ -43,6 +43,29 @@ export async function updateMemberInfo(
   return { success: true }
 }
 
+/**
+ * 단원 기존 정보 조회 (인증 불필요 퍼블릭 액션)
+ */
+export async function getMemberInfo(
+  memberId: string,
+): Promise<{ data?: MemberInfoInput; error?: string }> {
+  if (!memberId) return { error: '단원 ID가 없습니다.' }
+
+  const supabase = createServiceClient()
+
+  const { data, error } = await supabase
+    .from('members')
+    .select('church_position, date_of_birth, district, area, church_registration_year, choir_join_year, address, prayer_request')
+    .eq('id', memberId)
+    .single()
+
+  if (error) {
+    return { error: '정보 조회에 실패했습니다.' }
+  }
+
+  return { data: data ?? {} }
+}
+
 interface FoundMember {
   id: string
   name: string
