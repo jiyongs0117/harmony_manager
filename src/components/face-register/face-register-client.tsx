@@ -30,10 +30,7 @@ interface MemberInfoForm {
   church_registration_year: string
   choir_join_year: string
   address: string
-  prayer_seomu: string    // 사업장
-  prayer_disease: string  // 질병
-  prayer_children: string // 자녀/손자녀
-  prayer_life: string     // 생활
+  prayer_request: string
 }
 
 const EMPTY_INFO: MemberInfoForm = {
@@ -44,10 +41,7 @@ const EMPTY_INFO: MemberInfoForm = {
   church_registration_year: '',
   choir_join_year: '',
   address: '',
-  prayer_seomu: '',
-  prayer_disease: '',
-  prayer_children: '',
-  prayer_life: '',
+  prayer_request: '',
 }
 
 // ─── 상수 ────────────────────────────────────────────────────────────
@@ -370,16 +364,6 @@ export function FaceRegisterClient() {
     }
   }
 
-  // ─── 기도제목 조합 ────────────────────────────────────────────────
-  function buildPrayerRequest(): string | null {
-    const parts: string[] = []
-    if (memberInfo.prayer_seomu.trim()) parts.push(`사업장: ${memberInfo.prayer_seomu.trim()}`)
-    if (memberInfo.prayer_disease.trim()) parts.push(`질병: ${memberInfo.prayer_disease.trim()}`)
-    if (memberInfo.prayer_children.trim()) parts.push(`자녀손: ${memberInfo.prayer_children.trim()}`)
-    if (memberInfo.prayer_life.trim()) parts.push(`생활: ${memberInfo.prayer_life.trim()}`)
-    return parts.length > 0 ? parts.join('\n') : null
-  }
-
   async function saveDescriptors(descriptors: number[][]) {
     if (!foundMember) return
     setStep('processing')
@@ -393,7 +377,7 @@ export function FaceRegisterClient() {
       church_registration_year: memberInfo.church_registration_year || null,
       choir_join_year: memberInfo.choir_join_year || null,
       address: memberInfo.address || null,
-      prayer_request: buildPrayerRequest(),
+      prayer_request: memberInfo.prayer_request.trim() || null,
     }
 
     const [faceResult] = await Promise.all([
@@ -695,52 +679,18 @@ export function FaceRegisterClient() {
           </div>
 
           {/* 개인 기도제목 */}
-          <div className="flex flex-col gap-3">
-            <label className="text-white/60 text-sm font-medium">개인 기도제목</label>
-
-            <div className="flex flex-col gap-2">
-              <label className={labelCls}>사업장</label>
-              <input
-                type="text"
-                value={memberInfo.prayer_seomu}
-                onChange={(e) => updateInfo('prayer_seomu', e.target.value)}
-                placeholder="사업장 기도제목"
-                className={inputCls}
-              />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between">
+              <label className="text-white/60 text-sm font-medium">개인 기도제목</label>
+              <span className="text-white/30 text-xs">사업장 · 질병 · 자녀손 · 생활 등</span>
             </div>
-
-            <div className="flex flex-col gap-2">
-              <label className={labelCls}>질병</label>
-              <input
-                type="text"
-                value={memberInfo.prayer_disease}
-                onChange={(e) => updateInfo('prayer_disease', e.target.value)}
-                placeholder="질병 기도제목"
-                className={inputCls}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className={labelCls}>자녀/손자녀</label>
-              <input
-                type="text"
-                value={memberInfo.prayer_children}
-                onChange={(e) => updateInfo('prayer_children', e.target.value)}
-                placeholder="자녀·손자녀 기도제목"
-                className={inputCls}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className={labelCls}>생활</label>
-              <input
-                type="text"
-                value={memberInfo.prayer_life}
-                onChange={(e) => updateInfo('prayer_life', e.target.value)}
-                placeholder="생활 기도제목"
-                className={inputCls}
-              />
-            </div>
+            <textarea
+              value={memberInfo.prayer_request}
+              onChange={(e) => updateInfo('prayer_request', e.target.value)}
+              placeholder={"예) 사업장: 가게 운영\n질병: 허리 치료\n자녀손: 취업 준비\n생활: 이사 문제"}
+              rows={5}
+              className={inputCls + ' resize-none leading-relaxed'}
+            />
           </div>
 
           {/* 개인정보 동의 */}
