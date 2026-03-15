@@ -2,6 +2,47 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 
+export interface MemberInfoInput {
+  church_position?: string | null
+  date_of_birth?: string | null
+  district?: string | null
+  area?: string | null
+  church_registration_year?: string | null
+  choir_join_year?: string | null
+  address?: string | null
+  prayer_request?: string | null
+}
+
+/**
+ * 단원 개인 정보 업데이트 (인증 불필요 퍼블릭 액션)
+ * 서비스 롤 키를 사용하여 RLS 우회
+ */
+export async function updateMemberInfo(
+  memberId: string,
+  info: MemberInfoInput,
+): Promise<{ success?: boolean; error?: string }> {
+  if (!memberId) return { error: '단원 ID가 없습니다.' }
+
+  const supabase = createServiceClient()
+
+  const updateData = Object.fromEntries(
+    Object.entries(info).filter(([, v]) => v !== undefined),
+  )
+
+  if (Object.keys(updateData).length === 0) return { success: true }
+
+  const { error } = await supabase
+    .from('members')
+    .update(updateData)
+    .eq('id', memberId)
+
+  if (error) {
+    return { error: '정보 저장에 실패했습니다: ' + error.message }
+  }
+
+  return { success: true }
+}
+
 interface FoundMember {
   id: string
   name: string

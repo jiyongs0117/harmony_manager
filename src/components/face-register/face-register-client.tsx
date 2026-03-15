@@ -3,10 +3,15 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import * as faceapi from 'face-api.js'
 import { cn } from '@/lib/utils'
-import { searchMembersByName, updateFaceDescriptors } from '@/actions/public-face-register'
+import {
+  searchMembersByName,
+  updateFaceDescriptors,
+  updateMemberInfo,
+  type MemberInfoInput,
+} from '@/actions/public-face-register'
 
 // ─── 타입 ────────────────────────────────────────────────────────────
-type PageStep = 'search' | 'found' | 'camera-init' | 'capturing' | 'processing' | 'done'
+type PageStep = 'search' | 'found' | 'info' | 'camera-init' | 'capturing' | 'processing' | 'done'
 type CaptureAngle = 'front' | 'left' | 'right'
 
 interface FoundMember {
@@ -17,10 +22,39 @@ interface FoundMember {
   department: string
 }
 
+interface MemberInfoForm {
+  church_position: string
+  date_of_birth: string
+  district: string
+  area: string
+  church_registration_year: string
+  choir_join_year: string
+  address: string
+  prayer_seomu: string    // 사업장
+  prayer_disease: string  // 질병
+  prayer_children: string // 자녀/손자녀
+  prayer_life: string     // 생활
+}
+
+const EMPTY_INFO: MemberInfoForm = {
+  church_position: '',
+  date_of_birth: '',
+  district: '',
+  area: '',
+  church_registration_year: '',
+  choir_join_year: '',
+  address: '',
+  prayer_seomu: '',
+  prayer_disease: '',
+  prayer_children: '',
+  prayer_life: '',
+}
+
 // ─── 상수 ────────────────────────────────────────────────────────────
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
 const CAPTURE_ANGLES: CaptureAngle[] = ['front', 'left', 'right']
+const CHURCH_POSITIONS = ['집사', '안수집사', '장로', '평신도']
 
 const ANGLE_LABELS: Record<CaptureAngle, string> = {
   front: '정면',
@@ -33,6 +67,10 @@ const ANGLE_GUIDES: Record<CaptureAngle, string> = {
   right: '천천히 오른쪽으로 45° 돌려주세요',
 }
 
+// ─── 공통 인풋 스타일 ─────────────────────────────────────────────────
+const inputCls = 'w-full bg-zinc-800 text-white rounded-xl px-4 py-3.5 text-base placeholder-white/30 border border-zinc-700 focus:outline-none focus:border-white/40'
+const labelCls = 'text-white/60 text-xs font-medium'
+
 // ─── 컴포넌트 ─────────────────────────────────────────────────────────
 export function FaceRegisterClient() {
   // 검색 상태
@@ -42,6 +80,11 @@ export function FaceRegisterClient() {
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [foundMember, setFoundMember] = useState<FoundMember | null>(null)
+
+  // 개인 정보 폼
+  const [memberInfo, setMemberInfo] = useState<MemberInfoForm>(EMPTY_INFO)
+  const updateInfo = (key: keyof MemberInfoForm, value: string) =>
+    setMemberInfo((prev) => ({ ...prev, [key]: value }))
 
   // 동의 상태
   const [privacyConsent, setPrivacyConsent] = useState(false)
@@ -93,8 +136,6 @@ export function FaceRegisterClient() {
   useEffect(() => () => stopCamera(), [stopCamera])
 
   // ─── 카메라 초기화 useEffect ──────────────────────────────────────────
-  // step이 'camera-init'으로 바뀐 뒤 React가 video 요소를 DOM에 마운트한 다음
-  // useEffect가 실행되므로 videoRef.current가 항상 유효합니다.
   useEffect(() => {
     if (step !== 'camera-init') return
 
@@ -123,7 +164,7 @@ export function FaceRegisterClient() {
         if (!videoRef.current) {
           stream.getTracks().forEach((t) => t.stop())
           setCameraError('카메라 초기화 오류가 발생했습니다. 다시 시도해주세요.')
-          setStep('found')
+          setStep('info')
           return
         }
 
@@ -146,7 +187,7 @@ export function FaceRegisterClient() {
       } catch {
         if (!cancelled) {
           setCameraError('카메라 접근 권한이 필요합니다. 브라우저 설정에서 카메라를 허용해주세요.')
-          setStep('found')
+          setStep('info')
         }
       }
     })()
@@ -189,7 +230,6 @@ export function FaceRegisterClient() {
   }
 
   // ─── 얼굴 등록 시작 버튼 핸들러 ──────────────────────────────────────
-  // 비동기 카메라 초기화는 useEffect에서 처리 (step 변경 감지)
   function handleStartFaceCapture() {
     setCameraError(null)
     setSaveError(null)
@@ -330,21 +370,45 @@ export function FaceRegisterClient() {
     }
   }
 
+  // ─── 기도제목 조합 ────────────────────────────────────────────────
+  function buildPrayerRequest(): string | null {
+    const parts: string[] = []
+    if (memberInfo.prayer_seomu.trim()) parts.push(`사업장: ${memberInfo.prayer_seomu.trim()}`)
+    if (memberInfo.prayer_disease.trim()) parts.push(`질병: ${memberInfo.prayer_disease.trim()}`)
+    if (memberInfo.prayer_children.trim()) parts.push(`자녀손: ${memberInfo.prayer_children.trim()}`)
+    if (memberInfo.prayer_life.trim()) parts.push(`생활: ${memberInfo.prayer_life.trim()}`)
+    return parts.length > 0 ? parts.join('\n') : null
+  }
+
   async function saveDescriptors(descriptors: number[][]) {
     if (!foundMember) return
     setStep('processing')
     setSaveError(null)
 
-    const result = await updateFaceDescriptors(
-      foundMember.id,
-      descriptors,
-      privacyConsentRef.current,
-      capturedFrontPhotoRef.current ?? undefined,
-    )
+    const info: MemberInfoInput = {
+      church_position: memberInfo.church_position || null,
+      date_of_birth: memberInfo.date_of_birth || null,
+      district: memberInfo.district || null,
+      area: memberInfo.area || null,
+      church_registration_year: memberInfo.church_registration_year || null,
+      choir_join_year: memberInfo.choir_join_year || null,
+      address: memberInfo.address || null,
+      prayer_request: buildPrayerRequest(),
+    }
 
-    if (result.error) {
-      setSaveError(result.error)
-      setStep('found')
+    const [faceResult] = await Promise.all([
+      updateFaceDescriptors(
+        foundMember.id,
+        descriptors,
+        privacyConsentRef.current,
+        capturedFrontPhotoRef.current ?? undefined,
+      ),
+      updateMemberInfo(foundMember.id, info),
+    ])
+
+    if (faceResult.error) {
+      setSaveError(faceResult.error)
+      setStep('info')
       return
     }
 
@@ -360,6 +424,7 @@ export function FaceRegisterClient() {
     setSearchError(null)
     setSaveError(null)
     setPrivacyConsent(false)
+    setMemberInfo(EMPTY_INFO)
     setCurrentAngleIndex(0)
     setCapturedCount(0)
     setFaceDetected(false)
@@ -379,11 +444,13 @@ export function FaceRegisterClient() {
 
       {/* 헤더 */}
       <div className="flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-sm z-10 flex-shrink-0">
-        {(step === 'found' || step === 'capturing') && (
+        {(step === 'found' || step === 'info' || step === 'capturing') && (
           <button
-            onClick={step === 'capturing'
-              ? () => { stopCamera(); setStep('found') }
-              : () => { setStep('search'); setNameInput('') }}
+            onClick={() => {
+              if (step === 'capturing') { stopCamera(); setStep('info') }
+              else if (step === 'info') setStep('found')
+              else { setStep('search'); setNameInput('') }
+            }}
             className="text-white/70 hover:text-white transition-colors"
             aria-label="뒤로"
           >
@@ -392,7 +459,9 @@ export function FaceRegisterClient() {
             </svg>
           </button>
         )}
-        <h1 className="text-white font-semibold text-lg flex-1">얼굴 등록</h1>
+        <h1 className="text-white font-semibold text-lg flex-1">
+          {step === 'info' ? '추가 정보 입력' : '얼굴 등록'}
+        </h1>
 
         {isCapturing && (
           <div className="flex gap-2">
@@ -421,7 +490,6 @@ export function FaceRegisterClient() {
             <p className="text-white/50 text-sm mt-1">이름을 입력하면 목록이 나타납니다</p>
           </div>
 
-          {/* 이름 검색 입력 */}
           <div className="flex flex-col gap-1.5">
             <label className="text-white/70 text-sm font-medium">이름</label>
             <div className="relative">
@@ -430,7 +498,7 @@ export function FaceRegisterClient() {
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 placeholder="이름 2글자 이상 입력"
-                className="w-full bg-zinc-800 text-white rounded-xl px-4 py-3.5 text-base placeholder-white/30 border border-zinc-700 focus:outline-none focus:border-white/40 pr-10"
+                className={inputCls}
                 autoComplete="off"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -446,16 +514,11 @@ export function FaceRegisterClient() {
               </div>
             </div>
 
-            {/* 검색 결과 리스트 */}
             {nameInput.trim().length >= 2 && !isSearching && (
               <div className="flex flex-col gap-1 mt-1">
-                {searchError && (
-                  <p className="text-red-400 text-sm px-1">{searchError}</p>
-                )}
+                {searchError && <p className="text-red-400 text-sm px-1">{searchError}</p>}
                 {!searchError && searchResults.length === 0 && (
-                  <p className="text-white/40 text-sm text-center py-4">
-                    검색 결과가 없습니다
-                  </p>
+                  <p className="text-white/40 text-sm text-center py-4">검색 결과가 없습니다</p>
                 )}
                 {searchResults.map((member) => (
                   <button
@@ -488,7 +551,6 @@ export function FaceRegisterClient() {
       {/* ── 단원 확인 단계 ── */}
       {step === 'found' && foundMember && (
         <div className="flex-1 flex flex-col px-6 py-8 gap-5 bg-zinc-950 overflow-y-auto">
-          {/* 단원 정보 */}
           <div className="text-center pt-4">
             <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mx-auto mb-4">
               <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -509,7 +571,179 @@ export function FaceRegisterClient() {
             <p className="text-red-400 text-sm text-center bg-red-950/30 rounded-xl px-4 py-3">{saveError}</p>
           )}
 
-          {/* 개인정보 동의 체크박스 */}
+          <div className="bg-zinc-900 rounded-xl px-4 py-4 flex flex-col gap-1.5">
+            <p className="text-white/60 text-sm">다음 단계에서 추가 정보를 입력하고 얼굴을 등록합니다.</p>
+            <ul className="text-white/40 text-xs flex flex-col gap-1 mt-1">
+              <li>· 직분, 생년월일, 교구/구역, 등록연도</li>
+              <li>· 주소, 개인 기도제목</li>
+              <li>· 3방향 얼굴 촬영 (정면·좌측·우측)</li>
+            </ul>
+          </div>
+
+          <button
+            onClick={() => setStep('info')}
+            className="w-full bg-white text-black font-semibold py-4 rounded-xl text-base active:scale-95 transition-all"
+          >
+            다음 →
+          </button>
+        </div>
+      )}
+
+      {/* ── 추가 정보 입력 단계 ── */}
+      {step === 'info' && foundMember && (
+        <div className="flex-1 flex flex-col px-6 py-6 gap-5 bg-zinc-950 overflow-y-auto">
+
+          {saveError && (
+            <p className="text-red-400 text-sm text-center bg-red-950/30 rounded-xl px-4 py-3">{saveError}</p>
+          )}
+
+          {/* 직분 */}
+          <div className="flex flex-col gap-2">
+            <label className={labelCls}>직분</label>
+            <div className="flex gap-2 flex-wrap">
+              {CHURCH_POSITIONS.map((pos) => (
+                <button
+                  key={pos}
+                  type="button"
+                  onClick={() => updateInfo('church_position', memberInfo.church_position === pos ? '' : pos)}
+                  className={cn(
+                    'px-4 py-2 rounded-xl text-sm font-medium border transition-all',
+                    memberInfo.church_position === pos
+                      ? 'bg-white text-black border-white'
+                      : 'bg-transparent text-white/60 border-zinc-700',
+                  )}
+                >
+                  {pos}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 생년월일 */}
+          <div className="flex flex-col gap-1.5">
+            <label className={labelCls}>생년월일</label>
+            <input
+              type="date"
+              value={memberInfo.date_of_birth}
+              onChange={(e) => updateInfo('date_of_birth', e.target.value)}
+              className={inputCls}
+            />
+          </div>
+
+          {/* 교구 / 구역 */}
+          <div className="flex gap-3">
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className={labelCls}>교구</label>
+              <input
+                type="text"
+                value={memberInfo.district}
+                onChange={(e) => updateInfo('district', e.target.value)}
+                placeholder="예: 1교구"
+                className={inputCls}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className={labelCls}>구역</label>
+              <input
+                type="text"
+                value={memberInfo.area}
+                onChange={(e) => updateInfo('area', e.target.value)}
+                placeholder="예: 3구역"
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          {/* 교회등록연도 / 찬양대 등록연도 */}
+          <div className="flex gap-3">
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className={labelCls}>교회 등록연도</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                value={memberInfo.church_registration_year}
+                onChange={(e) => updateInfo('church_registration_year', e.target.value.replace(/\D/g, ''))}
+                placeholder="예: 2010"
+                className={inputCls}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1">
+              <label className={labelCls}>찬양대 등록연도</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                value={memberInfo.choir_join_year}
+                onChange={(e) => updateInfo('choir_join_year', e.target.value.replace(/\D/g, ''))}
+                placeholder="예: 2015"
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          {/* 주소 */}
+          <div className="flex flex-col gap-1.5">
+            <label className={labelCls}>주소</label>
+            <input
+              type="text"
+              value={memberInfo.address}
+              onChange={(e) => updateInfo('address', e.target.value)}
+              placeholder="도로명 주소 입력"
+              className={inputCls}
+            />
+          </div>
+
+          {/* 개인 기도제목 */}
+          <div className="flex flex-col gap-3">
+            <label className="text-white/60 text-sm font-medium">개인 기도제목</label>
+
+            <div className="flex flex-col gap-2">
+              <label className={labelCls}>사업장</label>
+              <input
+                type="text"
+                value={memberInfo.prayer_seomu}
+                onChange={(e) => updateInfo('prayer_seomu', e.target.value)}
+                placeholder="사업장 기도제목"
+                className={inputCls}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className={labelCls}>질병</label>
+              <input
+                type="text"
+                value={memberInfo.prayer_disease}
+                onChange={(e) => updateInfo('prayer_disease', e.target.value)}
+                placeholder="질병 기도제목"
+                className={inputCls}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className={labelCls}>자녀/손자녀</label>
+              <input
+                type="text"
+                value={memberInfo.prayer_children}
+                onChange={(e) => updateInfo('prayer_children', e.target.value)}
+                placeholder="자녀·손자녀 기도제목"
+                className={inputCls}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className={labelCls}>생활</label>
+              <input
+                type="text"
+                value={memberInfo.prayer_life}
+                onChange={(e) => updateInfo('prayer_life', e.target.value)}
+                placeholder="생활 기도제목"
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          {/* 개인정보 동의 */}
           <button
             type="button"
             onClick={() => setPrivacyConsent((v) => !v)}
@@ -520,7 +754,6 @@ export function FaceRegisterClient() {
                 : 'bg-zinc-900 border-zinc-700 active:border-zinc-500',
             )}
           >
-            {/* 체크박스 */}
             <div className={cn(
               'w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5 border-2 transition-colors',
               privacyConsent ? 'bg-white border-white' : 'border-zinc-500',
@@ -531,48 +764,34 @@ export function FaceRegisterClient() {
                 </svg>
               )}
             </div>
-            {/* 동의 내용 */}
             <div>
               <p className="text-white text-sm font-medium leading-snug">
                 개인정보 수집 및 이용에 동의합니다{' '}
                 <span className="text-red-400 text-xs font-normal">(필수)</span>
               </p>
               <p className="text-white/40 text-xs mt-1.5 leading-relaxed">
-                · 수집항목: 얼굴 특징점 데이터<br />
-                · 이용목적: 출석 자동 인식 서비스 제공<br />
+                · 수집항목: 얼굴 특징점, 개인정보<br />
+                · 이용목적: 출석 자동 인식 및 단원 관리<br />
                 · 보유기간: 단원 탈퇴 시까지
               </p>
             </div>
           </button>
 
-          {/* 촬영 안내 */}
-          <div className="bg-zinc-900 rounded-xl px-4 py-4 flex flex-col gap-2">
-            <p className="text-white/60 text-sm font-medium">촬영 안내</p>
-            {CAPTURE_ANGLES.map((angle, i) => (
-              <div key={angle} className="flex items-center gap-2 text-white/50 text-sm">
-                <span className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center text-xs flex-shrink-0">{i + 1}</span>
-                {ANGLE_GUIDES[angle]}
-              </div>
-            ))}
-            <p className="text-white/30 text-xs mt-1">얼굴이 감지되면 3초 후 자동으로 촬영됩니다</p>
-          </div>
-
+          {/* 얼굴 등록 시작 */}
           <button
             onClick={handleStartFaceCapture}
             disabled={!privacyConsent}
-            className="w-full bg-white text-black font-semibold py-4 rounded-xl text-base disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all"
+            className="w-full bg-white text-black font-semibold py-4 rounded-xl text-base disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all mb-4"
           >
             얼굴 등록 시작
           </button>
         </div>
       )}
 
-      {/* ── 카메라 패널 (camera-init + capturing 공유) ──────────────────────
-           video/canvas를 항상 DOM에 유지하여 useEffect에서 ref가 유효하도록 함 */}
+      {/* ── 카메라 패널 (camera-init + capturing 공유) ── */}
       {isCameraActive && (
         <>
           <div className="relative flex-1 overflow-hidden bg-black">
-            {/* video·canvas: isCameraActive이면 항상 DOM에 존재 */}
             <video
               ref={videoRef}
               autoPlay
@@ -585,7 +804,6 @@ export function FaceRegisterClient() {
               className="absolute inset-0 w-full h-full pointer-events-none scale-x-[-1]"
             />
 
-            {/* 카메라 준비 중 오버레이 */}
             {step === 'camera-init' && (
               <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-4">
                 <div className="w-14 h-14 rounded-full border-4 border-white/20 border-t-white animate-spin" />
@@ -593,10 +811,8 @@ export function FaceRegisterClient() {
               </div>
             )}
 
-            {/* 캡처 중 오버레이 */}
             {isCapturing && (
               <>
-                {/* 타원 가이드 */}
                 <div className="absolute inset-0 flex items-center pointer-events-none" style={{ paddingBottom: '15%' }}>
                   <div className="w-full flex justify-center">
                     <div className={cn(
@@ -625,7 +841,6 @@ export function FaceRegisterClient() {
             )}
           </div>
 
-          {/* 하단 안내 - 촬영 중에만 */}
           {isCapturing && (
             <div className="bg-black px-6 py-5 flex-shrink-0">
               <div className="text-center mb-4">
@@ -665,7 +880,7 @@ export function FaceRegisterClient() {
       {step === 'processing' && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-zinc-950">
           <div className="w-16 h-16 rounded-full border-4 border-white/20 border-t-white animate-spin" />
-          <p className="text-white font-semibold text-lg">얼굴 정보 저장 중...</p>
+          <p className="text-white font-semibold text-lg">정보 저장 중...</p>
         </div>
       )}
 
@@ -679,7 +894,7 @@ export function FaceRegisterClient() {
           </div>
           <div className="text-center">
             <p className="text-white font-bold text-2xl">등록 완료!</p>
-            <p className="text-white/50 text-sm mt-2">{foundMember?.name}님의 얼굴이 등록되었습니다</p>
+            <p className="text-white/50 text-sm mt-2">{foundMember?.name}님의 정보가 저장되었습니다</p>
           </div>
           <div className="flex gap-4">
             {CAPTURE_ANGLES.map((angle) => (
