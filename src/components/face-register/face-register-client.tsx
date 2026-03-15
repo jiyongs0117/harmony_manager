@@ -623,9 +623,10 @@ export function FaceRegisterClient() {
           <div className="flex flex-col gap-1.5">
             <label className={labelCls}>생년월일</label>
             <input
-              type="date"
+              type="text"
               value={memberInfo.date_of_birth}
               onChange={(e) => updateInfo('date_of_birth', e.target.value)}
+              placeholder="예: 1990-01-01"
               className={inputCls}
             />
           </div>
