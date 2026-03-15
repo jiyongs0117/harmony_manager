@@ -680,14 +680,11 @@ export function FaceRegisterClient() {
 
           {/* 개인 기도제목 */}
           <div className="flex flex-col gap-2">
-            <div className="flex items-baseline justify-between">
-              <label className="text-white/60 text-sm font-medium">개인 기도제목</label>
-              <span className="text-white/30 text-xs">사업장 · 질병 · 자녀손 · 생활 등</span>
-            </div>
+            <label className="text-white/60 text-sm font-medium">개인 기도제목</label>
             <textarea
               value={memberInfo.prayer_request}
               onChange={(e) => updateInfo('prayer_request', e.target.value)}
-              placeholder={"예) 사업장: 가게 운영\n질병: 허리 치료\n자녀손: 취업 준비\n생활: 이사 문제"}
+              placeholder="사업장, 질병, 자녀손, 생활 등 구체적으로"
               rows={5}
               className={inputCls + ' resize-none leading-relaxed'}
             />
