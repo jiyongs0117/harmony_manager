@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFaceRecognition, type MemberWithPhoto, type MatchResult } from '@/hooks/use-face-recognition'
 import { upsertAttendance } from '@/actions/attendance'
@@ -34,6 +34,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     autoMatches,
     manualMatches,
     resultImageUrl,
+    capturedImageSize,
     videoRef,
     startCamera,
     stopCamera,
@@ -43,12 +44,10 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     errorMessage,
   } = useFaceRecognition(members)
 
-  // 모델 준비 완료 시 카메라 자동 시작
   useEffect(() => {
     if (status === 'ready') startCamera('environment')
   }, [status, startCamera])
 
-  // 미등록 단원 알림
   useEffect(() => {
     if (status === 'ready' && skippedMembers.length > 0) {
       toast(
@@ -58,25 +57,56 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     }
   }, [status, skippedMembers, members.length])
 
-  // 언마운트 시 카메라 종료
-  useEffect(() => {
-    return () => stopCamera()
-  }, [stopCamera])
+  useEffect(() => { return () => stopCamera() }, [stopCamera])
 
   const [selectedEventId, setSelectedEventId] = useState<string>(activeEvents[0]?.id ?? '')
   const [checkedMembers, setCheckedMembers] = useState<Set<string>>(new Set(initialCheckedMemberIds))
   const [isChecking, setIsChecking] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 })
-
-  // 결과 표시 시 자동 인식 멤버 기본 선택
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set())
+  const [selectedMatch, setSelectedMatch] = useState<{ match: MatchResult; isAuto: boolean } | null>(null)
+
   useEffect(() => {
     if (status === 'results') {
       setSelectedMatchIds(new Set(autoMatches.map((m) => m.member.id)))
       setImgTransform(null)
     }
   }, [status, autoMatches])
+
+  // ── 얼굴 박스 오버레이 좌표 계산 ──
+  // onLoad 대신 capturedImageSize(훅에서 제공) + layoutEffect로 더 신뢰도 높게 계산
+  const imageContainerRef = useRef<HTMLDivElement>(null)
+  const [imgTransform, setImgTransform] = useState<ImgTransform | null>(null)
+
+  useLayoutEffect(() => {
+    if (status !== 'results' || !capturedImageSize) return
+
+    const measure = () => {
+      const container = imageContainerRef.current
+      if (!container) return
+      const cW = container.clientWidth
+      const cH = container.clientHeight
+      if (!cW || !cH) return
+      const scale = Math.min(cW / capturedImageSize.width, cH / capturedImageSize.height)
+      setImgTransform({
+        scale,
+        offsetX: (cW - capturedImageSize.width * scale) / 2,
+        offsetY: (cH - capturedImageSize.height * scale) / 2,
+      })
+    }
+
+    // 두 프레임 후 실행 (42dvh 컨테이너가 완전히 렌더된 후)
+    const raf = requestAnimationFrame(() => requestAnimationFrame(measure))
+    return () => cancelAnimationFrame(raf)
+  }, [status, capturedImageSize])
+
+  const allMatchesWithType = [
+    ...autoMatches.map((m) => ({ match: m, isAuto: true })),
+    ...manualMatches.map((m) => ({ match: m, isAuto: false })),
+  ]
+  const allMatches = [...autoMatches, ...manualMatches]
+  const uncheckedSelectedCount = [...selectedMatchIds].filter((id) => !checkedMembers.has(id)).length
 
   const toggleMatch = (memberId: string) => {
     setSelectedMatchIds((prev) => {
@@ -85,54 +115,6 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
       return next
     })
   }
-
-  // 결과 이미지 좌표 변환
-  const imageContainerRef = useRef<HTMLDivElement>(null)
-  const [imgTransform, setImgTransform] = useState<ImgTransform | null>(null)
-
-  const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget
-    const container = imageContainerRef.current
-    if (!container) return
-    const cW = container.clientWidth
-    const cH = container.clientHeight
-    const scale = Math.min(cW / img.naturalWidth, cH / img.naturalHeight)
-    setImgTransform({
-      scale,
-      offsetX: (cW - img.naturalWidth * scale) / 2,
-      offsetY: (cH - img.naturalHeight * scale) / 2,
-    })
-  }, [])
-
-  // 얼굴 박스 클릭 팝업
-  const [selectedMatch, setSelectedMatch] = useState<{ match: MatchResult; isAuto: boolean } | null>(null)
-
-  const allMatchesWithType = [
-    ...autoMatches.map((m) => ({ match: m, isAuto: true })),
-    ...manualMatches.map((m) => ({ match: m, isAuto: false })),
-  ]
-
-  // 팝업에서 개별 출석 처리
-  const handlePopupCheck = async (memberId: string) => {
-    if (!selectedEventId || checkedMembers.has(memberId)) return
-    setIsChecking(true)
-    const result = await upsertAttendance(selectedEventId, [
-      { member_id: memberId, status: '출석', checked_at: new Date().toISOString() },
-    ])
-    setIsChecking(false)
-    if (result.error) {
-      toast(result.error, 'error')
-    } else {
-      setCheckedMembers((prev) => new Set(prev).add(memberId))
-      setSelectedMatchIds((prev) => new Set(prev).add(memberId))
-      toast('출석 처리되었습니다 ✓')
-      setSelectedMatch(null)
-    }
-  }
-
-  // 일괄 출석 처리
-  const allMatches = [...autoMatches, ...manualMatches]
-  const uncheckedSelectedCount = [...selectedMatchIds].filter((id) => !checkedMembers.has(id)).length
 
   const handleBatchCheck = async () => {
     if (!selectedEventId) { toast('진행중인 출석부가 없습니다', 'error'); return }
@@ -152,7 +134,23 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     }
   }
 
-  // descriptor 없는 멤버 동기화
+  const handlePopupCheck = async (memberId: string) => {
+    if (!selectedEventId || checkedMembers.has(memberId)) return
+    setIsChecking(true)
+    const result = await upsertAttendance(selectedEventId, [
+      { member_id: memberId, status: '출석', checked_at: new Date().toISOString() },
+    ])
+    setIsChecking(false)
+    if (result.error) {
+      toast(result.error, 'error')
+    } else {
+      setCheckedMembers((prev) => new Set(prev).add(memberId))
+      setSelectedMatchIds((prev) => new Set(prev).add(memberId))
+      toast('출석 처리되었습니다 ✓')
+      setSelectedMatch(null)
+    }
+  }
+
   const membersWithoutDescriptor = members.filter((m) => !m.face_descriptor || m.face_descriptor.length !== 128)
   const handleSyncDescriptors = async () => {
     if (membersWithoutDescriptor.length === 0) { toast('모든 단원의 특징값이 이미 저장되어 있습니다', 'info'); return }
@@ -160,11 +158,10 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     setSyncProgress({ current: 0, total: membersWithoutDescriptor.length })
     let successCount = 0
     for (let i = 0; i < membersWithoutDescriptor.length; i++) {
-      const member = membersWithoutDescriptor[i]
-      const desc = await extractDescriptorFromUrl(member.photo_url)
+      const desc = await extractDescriptorFromUrl(membersWithoutDescriptor[i].photo_url)
       if (desc.success) {
-        const result = await updateFaceDescriptor(member.id, desc.descriptor)
-        if (result.success) successCount++
+        const r = await updateFaceDescriptor(membersWithoutDescriptor[i].id, desc.descriptor)
+        if (r.success) successCount++
       }
       setSyncProgress({ current: i + 1, total: membersWithoutDescriptor.length })
     }
@@ -173,15 +170,11 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
   }
 
   return (
-    // fixed inset-0: 부모 레이아웃(pb-20, Header) 완전히 무시하고 뷰포트 전체 사용
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
 
       {/* Header */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-sm">
-        <button
-          onClick={() => { stopCamera(); router.back() }}
-          className="text-white"
-        >
+        <button onClick={() => { stopCamera(); router.back() }} className="text-white">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
@@ -208,10 +201,9 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         </div>
       </div>
 
-      {/* 콘텐츠 영역 */}
+      {/* 콘텐츠 */}
       <div className="flex-1 flex flex-col overflow-hidden min-h-0">
 
-        {/* 모델 로딩 */}
         {status === 'loading-models' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4">
             <LoadingSpinner size="lg" className="text-white" />
@@ -219,20 +211,16 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
           </div>
         )}
 
-        {/* Descriptor 빌드 */}
         {status === 'building-descriptors' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 px-8">
             <p className="text-white text-sm">단원 사진 분석 중... ({progress.current}/{progress.total})</p>
             <div className="w-full max-w-xs bg-white/20 rounded-full h-2">
-              <div
-                className="bg-primary h-2 rounded-full transition-all duration-300"
-                style={{ width: progress.total > 0 ? `${(progress.current / progress.total) * 100}%` : '0%' }}
-              />
+              <div className="bg-primary h-2 rounded-full transition-all duration-300"
+                style={{ width: progress.total > 0 ? `${(progress.current / progress.total) * 100}%` : '0%' }} />
             </div>
           </div>
         )}
 
-        {/* 에러 */}
         {status === 'error' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 px-8">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
@@ -243,7 +231,6 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
           </div>
         )}
 
-        {/* 단원 없음 */}
         {status === 'ready' && members.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 px-8">
             <p className="text-white text-sm text-center">사진이 등록된 단원이 없습니다.<br />단원 등록 시 사진을 추가해주세요.</p>
@@ -252,11 +239,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         )}
 
         {/* ── 뷰파인더 ── */}
-        {/* video는 항상 DOM에 존재해야 videoRef가 startCamera() 시점에 유효함 */}
-        <div className={cn(
-          'flex-1 flex flex-col min-h-0',
-          (status !== 'viewfinder' && status !== 'capturing') && 'hidden'
-        )}>
+        <div className={cn('flex-1 flex flex-col min-h-0', (status !== 'viewfinder' && status !== 'capturing') && 'hidden')}>
           <div className="relative flex-1 overflow-hidden">
             <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
             {status === 'capturing' && (
@@ -273,7 +256,6 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
               </div>
             )}
           </div>
-          {/* 촬영 버튼 - video 외부 고정 */}
           <div className="flex-shrink-0 h-24 flex items-center justify-center bg-black">
             {status === 'viewfinder' && (
               <button
@@ -290,52 +272,42 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         {status === 'results' && resultImageUrl && (
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
 
-            {/* 촬영 이미지 + 얼굴 박스 오버레이 */}
-            <div
-              ref={imageContainerRef}
-              className="relative bg-black flex-shrink-0"
-              style={{ height: '42dvh' }}
-            >
-              <img
-                src={resultImageUrl}
-                alt="촬영된 사진"
-                className="w-full h-full object-contain"
-                onLoad={handleImageLoad}
-              />
+            {/* 촬영 이미지 + 얼굴 박스 */}
+            <div ref={imageContainerRef} className="relative bg-black flex-shrink-0" style={{ height: '42dvh' }}>
+              <img src={resultImageUrl} alt="촬영된 사진" className="w-full h-full object-contain" />
 
-              {/* 클릭 가능 얼굴 박스 오버레이 */}
+              {/* 얼굴 박스 오버레이 */}
               {imgTransform && allMatchesWithType.map(({ match, isAuto }) => {
                 const { x, y, width, height } = match.box
                 const left = imgTransform.offsetX + x * imgTransform.scale
                 const top = imgTransform.offsetY + y * imgTransform.scale
                 const w = width * imgTransform.scale
                 const h = height * imgTransform.scale
-                const labelAbove = top > 24
+                const color = isAuto ? '#22c55e' : '#f59e0b'
                 return (
                   <button
                     key={match.member.id}
-                    style={{ position: 'absolute', left, top, width: w, height: h }}
+                    style={{ position: 'absolute', left, top, width: w, height: h, borderColor: color }}
                     onClick={() => setSelectedMatch({ match, isAuto })}
-                    className={cn(
-                      'border-2 rounded-sm hover:opacity-80 transition-opacity',
-                      isAuto ? 'border-green-400' : 'border-amber-400'
-                    )}
+                    className="border-2 rounded-sm z-10 bg-transparent active:opacity-70"
                   >
-                    <span className={cn(
-                      'absolute left-0 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm whitespace-nowrap leading-tight',
-                      isAuto ? 'bg-green-500/90' : 'bg-amber-500/90',
-                      labelAbove ? '-top-5' : 'top-0.5'
-                    )}>
+                    {/* 이름 라벨 */}
+                    <span
+                      style={{ backgroundColor: color }}
+                      className={cn(
+                        'absolute left-0 text-white text-[11px] font-bold px-1.5 py-0.5 rounded-sm whitespace-nowrap leading-tight',
+                        top > 24 ? '-top-5' : 'top-0.5'
+                      )}
+                    >
                       {match.member.name}
                     </span>
                   </button>
                 )
               })}
 
-              {/* 다시 찍기 */}
               <button
                 onClick={retake}
-                className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm text-white text-sm px-3 py-2 rounded-xl"
+                className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm text-white text-sm px-3 py-2 rounded-xl"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
@@ -345,14 +317,11 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
             </div>
 
             {/* 인식 결과 리스트 */}
-            <div className="flex-1 bg-white overflow-y-auto pb-safe min-h-0">
+            <div className="flex-1 bg-white overflow-y-auto min-h-0 pb-safe">
               {activeEvents.length > 1 && (
                 <div className="px-4 pt-3 pb-1">
-                  <select
-                    value={selectedEventId}
-                    onChange={(e) => setSelectedEventId(e.target.value)}
-                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-gray-50"
-                  >
+                  <select value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-gray-50">
                     {activeEvents.map((ev) => (
                       <option key={ev.id} value={ev.id}>{ev.event_name} ({ev.event_date})</option>
                     ))}
@@ -376,14 +345,11 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
                   <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">자동 인식 · {autoMatches.length}명</p>
                   <div className="flex flex-col gap-2">
                     {autoMatches.map((match) => (
-                      <MatchCard
-                        key={match.member.id}
-                        match={match}
-                        isAuto
+                      <MatchCard key={match.member.id} match={match} isAuto
                         isSelected={selectedMatchIds.has(match.member.id)}
                         isAlreadyChecked={checkedMembers.has(match.member.id)}
                         onToggle={() => toggleMatch(match.member.id)}
-                        onTapPhoto={() => setSelectedMatch({ match, isAuto: true })}
+                        onTapInfo={() => setSelectedMatch({ match, isAuto: true })}
                       />
                     ))}
                   </div>
@@ -395,14 +361,11 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
                   <p className="text-xs font-semibold text-amber-500 uppercase tracking-wide mb-2">확인 필요 · {manualMatches.length}명</p>
                   <div className="flex flex-col gap-2">
                     {manualMatches.map((match) => (
-                      <MatchCard
-                        key={match.member.id}
-                        match={match}
-                        isAuto={false}
+                      <MatchCard key={match.member.id} match={match} isAuto={false}
                         isSelected={selectedMatchIds.has(match.member.id)}
                         isAlreadyChecked={checkedMembers.has(match.member.id)}
                         onToggle={() => toggleMatch(match.member.id)}
-                        onTapPhoto={() => setSelectedMatch({ match, isAuto: false })}
+                        onTapInfo={() => setSelectedMatch({ match, isAuto: false })}
                       />
                     ))}
                   </div>
@@ -414,10 +377,8 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
 
             {/* 일괄 출석 처리 버튼 */}
             {allMatches.length > 0 && activeEvents.length > 0 && (
-              <div
-                className="flex-shrink-0 px-4 pt-3 bg-white/95 backdrop-blur-sm border-t border-gray-100"
-                style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
-              >
+              <div className="flex-shrink-0 px-4 pt-3 bg-white/95 backdrop-blur-sm border-t border-gray-100"
+                style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
                 <button
                   onClick={handleBatchCheck}
                   disabled={isChecking || uncheckedSelectedCount === 0}
@@ -434,55 +395,64 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         )}
       </div>
 
-      {/* ── 얼굴 클릭 팝업 (바텀시트) ── */}
+      {/* ── 단원 사진 뷰어 팝업 ── */}
       {selectedMatch && (
         <div
-          className="absolute inset-0 z-10 bg-black/50 flex items-end"
+          className="absolute inset-0 z-[60] bg-black flex flex-col"
           onClick={() => setSelectedMatch(null)}
         >
+          {/* 닫기 버튼 */}
+          <div className="flex-shrink-0 flex justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setSelectedMatch(null)} className="text-white/70 hover:text-white">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+
+          {/* 등록 사진 크게 */}
+          <div className="flex-1 flex items-center justify-center px-6" onClick={(e) => e.stopPropagation()}>
+            {selectedMatch.match.member.photo_url ? (
+              <img
+                src={selectedMatch.match.member.photo_url}
+                alt={selectedMatch.match.member.name}
+                className="max-w-full max-h-full object-contain rounded-2xl"
+              />
+            ) : (
+              <div className="w-48 h-48 rounded-full bg-primary-light flex items-center justify-center">
+                <span className="text-6xl font-bold text-primary">
+                  {getInitials(selectedMatch.match.member.name)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* 단원 정보 + 출석 버튼 */}
           <div
-            className="bg-white w-full rounded-t-2xl px-5 pt-5"
+            className="flex-shrink-0 px-5 pt-4 bg-black"
             style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* 드래그 핸들 */}
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+            {/* 조 · 이름 */}
+            <div className="flex items-baseline gap-2 mb-1">
+              {selectedMatch.match.member.group_number && (
+                <span className="text-white/50 text-lg font-bold">
+                  {selectedMatch.match.member.group_number}조
+                </span>
+              )}
+              <span className="text-white text-2xl font-bold">{selectedMatch.match.member.name}</span>
+            </div>
 
-            {/* 단원 정보 */}
-            <div className="flex items-center gap-4 mb-5">
-              <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                {selectedMatch.match.member.photo_url ? (
-                  <img
-                    src={selectedMatch.match.member.photo_url}
-                    alt={selectedMatch.match.member.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-xl font-semibold text-muted">
-                    {getInitials(selectedMatch.match.member.name)}
-                  </span>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  {selectedMatch.match.member.group_number && (
-                    <span className="text-base font-bold text-muted">
-                      {selectedMatch.match.member.group_number}조
-                    </span>
-                  )}
-                  <span className="text-xl font-bold">{selectedMatch.match.member.name}</span>
-                </div>
-                <div className="flex items-center gap-1 mt-1 flex-wrap">
-                  <Badge>{selectedMatch.match.member.department}</Badge>
-                  <Badge>{selectedMatch.match.member.part}</Badge>
-                </div>
-                <p className={cn(
-                  'text-xs font-medium mt-1.5',
-                  selectedMatch.isAuto ? 'text-green-600' : 'text-amber-500'
-                )}>
-                  {selectedMatch.isAuto ? '자동 인식 ✓' : '확인 필요'}
-                </p>
-              </div>
+            {/* 뱃지 + 인식 신뢰도 */}
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <Badge>{selectedMatch.match.member.department}</Badge>
+              <Badge>{selectedMatch.match.member.part}</Badge>
+              <span className={cn(
+                'text-xs font-semibold',
+                selectedMatch.isAuto ? 'text-green-400' : 'text-amber-400'
+              )}>
+                {selectedMatch.isAuto ? '자동 인식 ✓' : '확인 필요'}
+              </span>
             </div>
 
             {/* 출석 처리 버튼 */}
@@ -491,9 +461,9 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
                 onClick={() => handlePopupCheck(selectedMatch.match.member.id)}
                 disabled={isChecking || checkedMembers.has(selectedMatch.match.member.id)}
                 className={cn(
-                  'w-full py-3.5 rounded-xl font-bold text-base transition-colors',
+                  'w-full py-4 rounded-xl font-bold text-base transition-colors',
                   checkedMembers.has(selectedMatch.match.member.id)
-                    ? 'bg-green-50 text-green-700 border border-green-200'
+                    ? 'bg-green-600 text-white'
                     : isChecking
                       ? 'bg-primary/60 text-white'
                       : 'bg-primary text-white active:bg-primary/80'
@@ -518,10 +488,10 @@ interface MatchCardProps {
   isSelected: boolean
   isAlreadyChecked: boolean
   onToggle: () => void
-  onTapPhoto: () => void
+  onTapInfo: () => void
 }
 
-function MatchCard({ match, isAuto, isSelected, isAlreadyChecked, onToggle, onTapPhoto }: MatchCardProps) {
+function MatchCard({ match, isAuto, isSelected, isAlreadyChecked, onToggle, onTapInfo }: MatchCardProps) {
   const { member } = match
   return (
     <div className={cn(
@@ -529,16 +499,13 @@ function MatchCard({ match, isAuto, isSelected, isAlreadyChecked, onToggle, onTa
       isAuto ? 'border-green-400' : 'border-amber-400',
       isAlreadyChecked && 'opacity-60'
     )}>
-      {/* 아바타 - 클릭 시 팝업 */}
-      <button onClick={onTapPhoto} className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center">
+      <button onClick={onTapInfo} className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center">
         {member.photo_url
           ? <img src={member.photo_url} alt={member.name} className="w-full h-full object-cover" />
           : <span className="text-sm font-bold text-muted">{getInitials(member.name)}</span>
         }
       </button>
-
-      {/* 이름 + 정보 */}
-      <button onClick={onTapPhoto} className="flex-1 min-w-0 text-left">
+      <button onClick={onTapInfo} className="flex-1 min-w-0 text-left">
         <div className="flex items-baseline gap-1.5">
           {member.group_number && <span className="text-sm font-bold text-muted">{member.group_number}조</span>}
           <span className="font-bold text-base truncate">{member.name}</span>
@@ -548,18 +515,14 @@ function MatchCard({ match, isAuto, isSelected, isAlreadyChecked, onToggle, onTa
           <Badge>{member.part}</Badge>
         </div>
       </button>
-
-      {/* 체크박스 토글 */}
       <button
         onClick={onToggle}
         disabled={isAlreadyChecked}
         className={cn(
           'w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center border-2 transition-colors',
-          isAlreadyChecked
-            ? 'bg-green-500 border-green-500'
-            : isSelected
-              ? (isAuto ? 'bg-green-500 border-transparent' : 'bg-amber-400 border-transparent')
-              : 'border-gray-300 bg-white'
+          isAlreadyChecked ? 'bg-green-500 border-green-500'
+            : isSelected ? (isAuto ? 'bg-green-500 border-transparent' : 'bg-amber-400 border-transparent')
+            : 'border-gray-300 bg-white'
         )}
       >
         {(isSelected || isAlreadyChecked) && (

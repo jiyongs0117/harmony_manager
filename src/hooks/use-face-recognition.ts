@@ -41,6 +41,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [autoMatches, setAutoMatches] = useState<MatchResult[]>([])
   const [manualMatches, setManualMatches] = useState<MatchResult[]>([])
   const [resultImageUrl, setResultImageUrl] = useState<string | null>(null)
+  const [capturedImageSize, setCapturedImageSize] = useState<{ width: number; height: number } | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
 
@@ -169,6 +170,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     setAutoMatches([])
     setManualMatches([])
     setResultImageUrl(null)
+    setCapturedImageSize(null)
     setStatus('ready')
   }, [stopStream])
 
@@ -233,6 +235,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
 
       setAutoMatches(newAutoMatches)
       setManualMatches(newManualMatches)
+      setCapturedImageSize({ width: captureCanvas.width, height: captureCanvas.height })
       setResultImageUrl(captureCanvas.toDataURL('image/jpeg', 0.92))
       setStatus('results')
     } catch {
@@ -246,6 +249,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     setAutoMatches([])
     setManualMatches([])
     setResultImageUrl(null)
+    setCapturedImageSize(null)
     startCamera(facingMode)
   }, [facingMode, startCamera])
 
@@ -261,6 +265,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     autoMatches,
     manualMatches,
     resultImageUrl,
+    capturedImageSize,
     videoRef,
     startCamera,
     stopCamera,
