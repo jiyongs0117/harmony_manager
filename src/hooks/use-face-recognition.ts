@@ -180,6 +180,35 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     await startCamera(newMode)
   }, [facingMode, stopStream, startCamera])
 
+  // canvas → 매칭 결과 공통 처리
+  const detectOnCanvas = useCallback(async (canvas: HTMLCanvasElement) => {
+    const detections = await faceapi
+      .detectAllFaces(canvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 }))
+      .withFaceLandmarks()
+      .withFaceDescriptors()
+
+    const newAutoMatches: MatchResult[] = []
+    const newManualMatches: MatchResult[] = []
+
+    for (const detection of detections) {
+      const box = detection.detection.box
+      if (!matcherRef.current) continue
+      const bestMatch = matcherRef.current.findBestMatch(detection.descriptor)
+      if (bestMatch.label === 'unknown') continue
+      const member = membersMapRef.current.get(bestMatch.label)
+      if (!member) continue
+
+      const matchResult: MatchResult = {
+        member,
+        distance: bestMatch.distance,
+        box: { x: box.x, y: box.y, width: box.width, height: box.height },
+      }
+      if (bestMatch.distance <= AUTO_CHECK_THRESHOLD) newAutoMatches.push(matchResult)
+      else newManualMatches.push(matchResult)
+    }
+    return { newAutoMatches, newManualMatches }
+  }, [])
+
   // 사진 촬영 후 전체 인식
   const captureAndRecognize = useCallback(async () => {
     const video = videoRef.current
@@ -187,52 +216,16 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
 
     setStatus('capturing')
 
-    // 현재 프레임 캡처
     const captureCanvas = document.createElement('canvas')
     captureCanvas.width = video.videoWidth
     captureCanvas.height = video.videoHeight
     const ctx = captureCanvas.getContext('2d')
     if (!ctx) { setStatus('viewfinder'); return }
     ctx.drawImage(video, 0, 0)
-
-    // 카메라 스트림 종료
     stopStream()
 
     try {
-      const detections = await faceapi
-        .detectAllFaces(captureCanvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 }))
-        .withFaceLandmarks()
-        .withFaceDescriptors()
-
-      const newAutoMatches: MatchResult[] = []
-      const newManualMatches: MatchResult[] = []
-
-      for (const detection of detections) {
-        const box = detection.detection.box
-        if (!matcherRef.current) continue
-
-        const bestMatch = matcherRef.current.findBestMatch(detection.descriptor)
-        if (bestMatch.label === 'unknown') continue
-
-        const member = membersMapRef.current.get(bestMatch.label)
-        if (!member) continue
-
-        const isAuto = bestMatch.distance <= AUTO_CHECK_THRESHOLD
-        const matchResult: MatchResult = {
-          member,
-          distance: bestMatch.distance,
-          box: { x: box.x, y: box.y, width: box.width, height: box.height },
-        }
-
-        if (isAuto) {
-          newAutoMatches.push(matchResult)
-        } else {
-          newManualMatches.push(matchResult)
-        }
-
-        // 박스 그리기는 컴포넌트의 CSS 오버레이에서 처리
-      }
-
+      const { newAutoMatches, newManualMatches } = await detectOnCanvas(captureCanvas)
       setAutoMatches(newAutoMatches)
       setManualMatches(newManualMatches)
       setCapturedImageSize({ width: captureCanvas.width, height: captureCanvas.height })
@@ -242,7 +235,45 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
       setStatus('error')
       setErrorMessage('얼굴 인식 중 오류가 발생했습니다. 다시 시도해주세요.')
     }
-  }, [stopStream])
+  }, [stopStream, detectOnCanvas])
+
+  // 사진첩에서 파일 선택 후 인식
+  const recognizeFromFile = useCallback(async (file: File) => {
+    setStatus('capturing')
+    stopStream()
+
+    try {
+      // 파일 → Image 로드 (브라우저가 EXIF 방향 자동 처리)
+      const objectUrl = URL.createObjectURL(file)
+      const img = new Image()
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = reject
+        img.src = objectUrl
+      })
+      URL.revokeObjectURL(objectUrl)
+
+      // 너무 큰 사진은 리사이즈 (face-api.js 성능)
+      const MAX_DIM = 1920
+      const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.naturalWidth * scale)
+      canvas.height = Math.round(img.naturalHeight * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { setStatus('ready'); return }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+      const { newAutoMatches, newManualMatches } = await detectOnCanvas(canvas)
+      setAutoMatches(newAutoMatches)
+      setManualMatches(newManualMatches)
+      setCapturedImageSize({ width: canvas.width, height: canvas.height })
+      setResultImageUrl(canvas.toDataURL('image/jpeg', 0.92))
+      setStatus('results')
+    } catch {
+      setStatus('error')
+      setErrorMessage('이미지 인식 중 오류가 발생했습니다. 다시 시도해주세요.')
+    }
+  }, [stopStream, detectOnCanvas])
 
   // 다시 찍기
   const retake = useCallback(() => {
@@ -271,6 +302,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     stopCamera,
     flipCamera,
     captureAndRecognize,
+    recognizeFromFile,
     retake,
     errorMessage,
     facingMode,

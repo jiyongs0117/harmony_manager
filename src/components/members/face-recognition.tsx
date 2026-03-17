@@ -27,6 +27,7 @@ interface ImgTransform {
 
 export function FaceRecognition({ members, activeEvents = [], initialCheckedMemberIds = [] }: FaceRecognitionProps) {
   const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const {
     status,
     progress,
@@ -40,6 +41,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     stopCamera,
     flipCamera,
     captureAndRecognize,
+    recognizeFromFile,
     retake,
     errorMessage,
   } = useFaceRecognition(members)
@@ -256,16 +258,49 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
               </div>
             )}
           </div>
-          <div className="flex-shrink-0 h-24 flex items-center justify-center bg-black">
+          <div className="flex-shrink-0 h-24 flex items-center justify-center gap-8 bg-black">
             {status === 'viewfinder' && (
-              <button
-                onClick={captureAndRecognize}
-                className="w-20 h-20 rounded-full bg-white shadow-2xl active:scale-95 transition-transform flex items-center justify-center"
-              >
-                <div className="w-16 h-16 rounded-full border-2 border-gray-300" />
-              </button>
+              <>
+                {/* 사진첩 버튼 */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-12 h-12 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center active:opacity-70 transition-opacity"
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                </button>
+
+                {/* 촬영 버튼 */}
+                <button
+                  onClick={captureAndRecognize}
+                  className="w-20 h-20 rounded-full bg-white shadow-2xl active:scale-95 transition-transform flex items-center justify-center"
+                >
+                  <div className="w-16 h-16 rounded-full border-2 border-gray-300" />
+                </button>
+
+                {/* 레이아웃 균형용 빈 공간 */}
+                <div className="w-12 h-12" />
+              </>
             )}
           </div>
+
+          {/* 숨겨진 파일 입력 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) {
+                recognizeFromFile(file)
+                e.target.value = ''
+              }
+            }}
+          />
         </div>
 
         {/* ── 결과 화면 ── */}
