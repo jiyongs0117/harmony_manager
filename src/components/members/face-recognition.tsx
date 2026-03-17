@@ -236,8 +236,11 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         )}
 
         {/* ── 뷰파인더 (촬영 대기) ── */}
-        {(status === 'viewfinder' || status === 'capturing') && (
-          <div className="relative flex-1">
+        {/* video는 항상 DOM에 존재해야 videoRef가 startCamera() 시점에 유효함 */}
+        <div className={cn(
+          'relative flex-1',
+          (status !== 'viewfinder' && status !== 'capturing') && 'hidden'
+        )}>
             <video
               ref={videoRef}
               autoPlay
@@ -275,7 +278,6 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
               </div>
             )}
           </div>
-        )}
 
         {/* ── 결과 화면 ── */}
         {status === 'results' && resultImageUrl && (
