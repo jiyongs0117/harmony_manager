@@ -38,18 +38,13 @@ export default async function MembersPage({ searchParams }: Props) {
   const groups = [...new Set(allMembers?.map((m) => m.group_number).filter(Boolean) as string[])].sort()
 
   return (
-    <div>
+    <div className="relative">
       <PageHeader
         title="단원 관리"
         action={
-          <div className="flex gap-2">
-            <Link href="/members/recognize">
-              <Button size="sm" variant="secondary">얼굴 인식</Button>
-            </Link>
-            <Link href="/members/new">
-              <Button size="sm">+ 등록</Button>
-            </Link>
-          </div>
+          <Link href="/members/new">
+            <Button size="sm">+ 등록</Button>
+          </Link>
         }
       />
 
@@ -73,6 +68,20 @@ export default async function MembersPage({ searchParams }: Props) {
           }
         />
       )}
+
+      {/* 얼굴 인식 FAB */}
+      <Link
+        href="/members/recognize"
+        className="fixed bottom-20 right-4 z-30 w-14 h-14 bg-primary rounded-full shadow-lg flex items-center justify-center text-white active:scale-95 transition-transform"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 3H5a2 2 0 0 0-2 2v4" />
+          <path d="M15 3h4a2 2 0 0 1 2 2v4" />
+          <path d="M9 21H5a2 2 0 0 1-2-2v-4" />
+          <path d="M15 21h4a2 2 0 0 0 2-2v-4" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </Link>
     </div>
   )
 }

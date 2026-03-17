@@ -34,8 +34,13 @@ const navItems = [
   },
 ]
 
+// 전체화면 페이지에서는 MobileNav 숨김
+const FULLSCREEN_ROUTES = ['/members/recognize']
+
 export function MobileNav() {
   const pathname = usePathname()
+
+  if (FULLSCREEN_ROUTES.includes(pathname)) return null
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border pb-safe">
