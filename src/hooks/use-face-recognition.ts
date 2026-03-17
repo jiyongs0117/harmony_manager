@@ -205,9 +205,6 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
       const newAutoMatches: MatchResult[] = []
       const newManualMatches: MatchResult[] = []
 
-      const lw = Math.max(2, Math.round(captureCanvas.width / 400))
-      const fontSize = Math.max(14, Math.round(captureCanvas.width / 80))
-
       for (const detection of detections) {
         const box = detection.detection.box
         if (!matcherRef.current) continue
@@ -231,22 +228,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           newManualMatches.push(matchResult)
         }
 
-        // 캡처 이미지에 박스 + 이름 그리기
-        const color = isAuto ? '#22c55e' : '#f59e0b'
-        ctx.strokeStyle = color
-        ctx.lineWidth = lw
-        ctx.strokeRect(box.x, box.y, box.width, box.height)
-
-        const label = [member.part, member.group_number ? `${member.group_number}조` : '', member.name]
-          .filter(Boolean)
-          .join(' ')
-
-        ctx.font = `bold ${fontSize}px sans-serif`
-        const tw = ctx.measureText(label).width
-        ctx.fillStyle = color
-        ctx.fillRect(box.x, box.y - fontSize - 8, tw + 16, fontSize + 8)
-        ctx.fillStyle = '#ffffff'
-        ctx.fillText(label, box.x + 8, box.y - 6)
+        // 박스 그리기는 컴포넌트의 CSS 오버레이에서 처리
       }
 
       setAutoMatches(newAutoMatches)
