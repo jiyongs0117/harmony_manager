@@ -25,35 +25,31 @@ export type RecognitionStatus =
   | 'loading-models'
   | 'building-descriptors'
   | 'ready'
-  | 'detecting'
+  | 'viewfinder'  // 카메라 활성화, 촬영 대기
+  | 'capturing'   // 사진 분석 중
+  | 'results'     // 결과 표시
   | 'error'
 
 const MODEL_URL = '/models'
-const DETECTION_INTERVAL_MS = 500
-const MATCH_THRESHOLD = 0.45       // 이 이상이면 무시 (< 85% 신뢰)
-const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 체크 (≥ 95% 신뢰)
-const UPSCALE_FACTOR = 1.5         // 작은 얼굴(멀리 있는 사람) 탐지를 위해 프레임 업스케일
+const MATCH_THRESHOLD = 0.45       // 이 이상이면 무시
+const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 (녹색)
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const [skippedMembers, setSkippedMembers] = useState<MemberWithPhoto[]>([])
-  const [autoMatches, setAutoMatches] = useState<MatchResult[]>([])    // 자동 체크 대상 (거리 ≤ 0.35)
-  const [manualMatches, setManualMatches] = useState<MatchResult[]>([]) // 수동 체크 대상 (0.35 < 거리 ≤ 0.5)
+  const [autoMatches, setAutoMatches] = useState<MatchResult[]>([])
+  const [manualMatches, setManualMatches] = useState<MatchResult[]>([])
+  const [resultImageUrl, setResultImageUrl] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
 
   const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const matcherRef = useRef<faceapi.FaceMatcher | null>(null)
-  const animFrameRef = useRef<number>(0)
-  const lastDetectionRef = useRef<number>(0)
-  const isDetectingRef = useRef(false)
   const membersMapRef = useRef<Map<string, MemberWithPhoto>>(new Map())
-  const upscaleCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  // Load models on mount
+  // 모델 로드 및 descriptor 빌드
   useEffect(() => {
     let cancelled = false
 
@@ -70,7 +66,6 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
 
         if (cancelled) return
 
-        // Build descriptors
         setStatus('building-descriptors')
         const total = members.length
         setProgress({ current: 0, total })
@@ -85,7 +80,6 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           const member = members[i]
           memberMap.set(member.id, member)
 
-          // face_descriptors(다각도, 복수) 우선 사용, 없으면 face_descriptor(단일) 폴백
           const descriptorArrays: Float32Array[] = []
 
           if (
@@ -117,10 +111,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
         setSkippedMembers(skipped)
 
         if (labeledDescriptors.length > 0) {
-          matcherRef.current = new faceapi.FaceMatcher(
-            labeledDescriptors,
-            MATCH_THRESHOLD
-          )
+          matcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, MATCH_THRESHOLD)
         }
 
         setStatus('ready')
@@ -138,195 +129,148 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
       setStatus('ready')
     }
 
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [members])
 
-  // Pause detection when tab is hidden
-  useEffect(() => {
-    function handleVisibility() {
-      if (document.hidden) {
-        isDetectingRef.current = false
-      } else if (status === 'detecting') {
-        isDetectingRef.current = true
-        detectLoop()
-      }
+  // 스트림만 종료 (상태 변경 없음)
+  const stopStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
     }
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function detectLoop() {
-    if (!isDetectingRef.current) return
-
-    animFrameRef.current = requestAnimationFrame(async () => {
-      const now = Date.now()
-      if (now - lastDetectionRef.current < DETECTION_INTERVAL_MS) {
-        detectLoop()
-        return
-      }
-      lastDetectionRef.current = now
-
-      const video = videoRef.current
-      const canvas = canvasRef.current
-      if (!video || !canvas || video.readyState < 2) {
-        detectLoop()
-        return
-      }
-
-      const displaySize = { width: video.videoWidth, height: video.videoHeight }
-      faceapi.matchDimensions(canvas, displaySize)
-
-      try {
-        // 멀리 있는 작은 얼굴도 탐지하기 위해 업스케일된 캔버스에서 탐지
-        if (!upscaleCanvasRef.current) {
-          upscaleCanvasRef.current = document.createElement('canvas')
-        }
-        const upscaleCanvas = upscaleCanvasRef.current
-        upscaleCanvas.width = Math.round(video.videoWidth * UPSCALE_FACTOR)
-        upscaleCanvas.height = Math.round(video.videoHeight * UPSCALE_FACTOR)
-        const upscaleCtx = upscaleCanvas.getContext('2d')
-        if (upscaleCtx) {
-          upscaleCtx.drawImage(video, 0, 0, upscaleCanvas.width, upscaleCanvas.height)
-        }
-
-        const detections = await faceapi
-          .detectAllFaces(upscaleCanvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 }))
-          .withFaceLandmarks()
-          .withFaceDescriptors()
-
-        // 업스케일된 좌표를 원본 비디오 크기로 변환
-        const resized = faceapi.resizeResults(detections, displaySize)
-
-        // Clear canvas
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height)
-        }
-
-        const newAutoMatches: MatchResult[] = []
-        const newManualMatches: MatchResult[] = []
-
-        for (const detection of resized) {
-          const box = detection.detection.box
-
-          if (matcherRef.current) {
-            const bestMatch = matcherRef.current.findBestMatch(detection.descriptor)
-
-            if (bestMatch.label !== 'unknown') {
-              const member = membersMapRef.current.get(bestMatch.label)
-              if (member) {
-                const matchResult: MatchResult = {
-                  member,
-                  distance: bestMatch.distance,
-                  box: { x: box.x, y: box.y, width: box.width, height: box.height },
-                }
-
-                const isAutoMatch = bestMatch.distance <= AUTO_CHECK_THRESHOLD
-
-                if (isAutoMatch) {
-                  newAutoMatches.push(matchResult)
-                } else {
-                  newManualMatches.push(matchResult)
-                }
-
-                // 자동 체크: 초록 박스 / 수동 체크: 주황 박스
-                if (ctx) {
-                  const color = isAutoMatch ? '#22c55e' : '#f59e0b'
-                  ctx.strokeStyle = color
-                  ctx.lineWidth = 3
-                  ctx.strokeRect(box.x, box.y, box.width, box.height)
-
-                  const label = [member.part, member.group_number ? `${member.group_number}` : '', member.name]
-                    .filter(Boolean)
-                    .join(' ')
-
-                  ctx.fillStyle = color
-                  ctx.font = '14px sans-serif'
-                  const textWidth = ctx.measureText(label).width
-                  ctx.fillRect(box.x, box.y - 24, textWidth + 16, 24)
-
-                  ctx.fillStyle = '#ffffff'
-                  ctx.fillText(label, box.x + 8, box.y - 7)
-                }
-              }
-            }
-            // 80% 미만(unknown) 얼굴은 아무것도 그리지 않음
-          }
-        }
-
-        setAutoMatches(newAutoMatches)
-        setManualMatches(newManualMatches)
-      } catch {
-        // Detection error, continue loop
-      }
-
-      detectLoop()
-    })
-  }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+  }, [])
 
   const startCamera = useCallback(async (mode: 'user' | 'environment' = 'environment') => {
     setErrorMessage(null)
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: mode, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       })
-
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         streamRef.current = stream
         setFacingMode(mode)
-
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play()
-          setStatus('detecting')
-          isDetectingRef.current = true
-          lastDetectionRef.current = 0
-          detectLoop()
+          setStatus('viewfinder')
         }
       }
     } catch {
       setErrorMessage('카메라 권한이 필요합니다. 브라우저 설정에서 카메라 접근을 허용해주세요.')
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   const stopCamera = useCallback(() => {
-    isDetectingRef.current = false
-    cancelAnimationFrame(animFrameRef.current)
+    stopStream()
     setAutoMatches([])
     setManualMatches([])
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-
+    setResultImageUrl(null)
     setStatus('ready')
-  }, [])
+  }, [stopStream])
 
   const flipCamera = useCallback(async () => {
-    stopCamera()
+    stopStream()
     const newMode = facingMode === 'user' ? 'environment' : 'user'
     await startCamera(newMode)
-  }, [facingMode, stopCamera, startCamera])
+  }, [facingMode, stopStream, startCamera])
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      isDetectingRef.current = false
-      cancelAnimationFrame(animFrameRef.current)
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
+  // 사진 촬영 후 전체 인식
+  const captureAndRecognize = useCallback(async () => {
+    const video = videoRef.current
+    if (!video || video.readyState < 2) return
+
+    setStatus('capturing')
+
+    // 현재 프레임 캡처
+    const captureCanvas = document.createElement('canvas')
+    captureCanvas.width = video.videoWidth
+    captureCanvas.height = video.videoHeight
+    const ctx = captureCanvas.getContext('2d')
+    if (!ctx) { setStatus('viewfinder'); return }
+    ctx.drawImage(video, 0, 0)
+
+    // 카메라 스트림 종료
+    stopStream()
+
+    try {
+      const detections = await faceapi
+        .detectAllFaces(captureCanvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 }))
+        .withFaceLandmarks()
+        .withFaceDescriptors()
+
+      const newAutoMatches: MatchResult[] = []
+      const newManualMatches: MatchResult[] = []
+
+      const lw = Math.max(2, Math.round(captureCanvas.width / 400))
+      const fontSize = Math.max(14, Math.round(captureCanvas.width / 80))
+
+      for (const detection of detections) {
+        const box = detection.detection.box
+        if (!matcherRef.current) continue
+
+        const bestMatch = matcherRef.current.findBestMatch(detection.descriptor)
+        if (bestMatch.label === 'unknown') continue
+
+        const member = membersMapRef.current.get(bestMatch.label)
+        if (!member) continue
+
+        const isAuto = bestMatch.distance <= AUTO_CHECK_THRESHOLD
+        const matchResult: MatchResult = {
+          member,
+          distance: bestMatch.distance,
+          box: { x: box.x, y: box.y, width: box.width, height: box.height },
+        }
+
+        if (isAuto) {
+          newAutoMatches.push(matchResult)
+        } else {
+          newManualMatches.push(matchResult)
+        }
+
+        // 캡처 이미지에 박스 + 이름 그리기
+        const color = isAuto ? '#22c55e' : '#f59e0b'
+        ctx.strokeStyle = color
+        ctx.lineWidth = lw
+        ctx.strokeRect(box.x, box.y, box.width, box.height)
+
+        const label = [member.part, member.group_number ? `${member.group_number}조` : '', member.name]
+          .filter(Boolean)
+          .join(' ')
+
+        ctx.font = `bold ${fontSize}px sans-serif`
+        const tw = ctx.measureText(label).width
+        ctx.fillStyle = color
+        ctx.fillRect(box.x, box.y - fontSize - 8, tw + 16, fontSize + 8)
+        ctx.fillStyle = '#ffffff'
+        ctx.fillText(label, box.x + 8, box.y - 6)
       }
+
+      setAutoMatches(newAutoMatches)
+      setManualMatches(newManualMatches)
+      setResultImageUrl(captureCanvas.toDataURL('image/jpeg', 0.92))
+      setStatus('results')
+    } catch {
+      setStatus('error')
+      setErrorMessage('얼굴 인식 중 오류가 발생했습니다. 다시 시도해주세요.')
     }
-  }, [])
+  }, [stopStream])
+
+  // 다시 찍기
+  const retake = useCallback(() => {
+    setAutoMatches([])
+    setManualMatches([])
+    setResultImageUrl(null)
+    startCamera(facingMode)
+  }, [facingMode, startCamera])
+
+  // 언마운트 시 정리
+  useEffect(() => {
+    return () => { stopStream() }
+  }, [stopStream])
 
   return {
     status,
@@ -334,11 +278,13 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     skippedMembers,
     autoMatches,
     manualMatches,
+    resultImageUrl,
     videoRef,
-    canvasRef,
     startCamera,
     stopCamera,
     flipCamera,
+    captureAndRecognize,
+    retake,
     errorMessage,
     facingMode,
   }

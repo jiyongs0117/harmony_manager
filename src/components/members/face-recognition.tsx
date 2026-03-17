@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFaceRecognition, type MemberWithPhoto } from '@/hooks/use-face-recognition'
 import { upsertAttendance } from '@/actions/attendance'
@@ -19,11 +19,6 @@ interface FaceRecognitionProps {
   initialCheckedMemberIds?: string[]
 }
 
-interface AutoCheckedItem {
-  member: MemberWithPhoto
-  expiresAt: number
-}
-
 export function FaceRecognition({ members, activeEvents = [], initialCheckedMemberIds = [] }: FaceRecognitionProps) {
   const router = useRouter()
   const {
@@ -32,22 +27,24 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     skippedMembers,
     autoMatches,
     manualMatches,
+    resultImageUrl,
     videoRef,
-    canvasRef,
     startCamera,
     stopCamera,
     flipCamera,
+    captureAndRecognize,
+    retake,
     errorMessage,
   } = useFaceRecognition(members)
 
-  // Auto-start camera when ready
+  // 모델 준비 완료 시 카메라 자동 시작
   useEffect(() => {
     if (status === 'ready') {
       startCamera('environment')
     }
   }, [status, startCamera])
 
-  // Notify skipped members
+  // 미등록 단원 알림
   useEffect(() => {
     if (status === 'ready' && skippedMembers.length > 0) {
       toast(
@@ -57,7 +54,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     }
   }, [status, skippedMembers, members.length])
 
-  // Cleanup camera on unmount
+  // 언마운트 시 카메라 종료
   useEffect(() => {
     return () => stopCamera()
   }, [stopCamera])
@@ -68,73 +65,55 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0 })
 
-  // ── 자동 출석 체크 상태 ──
-  const [autoCheckedList, setAutoCheckedList] = useState<AutoCheckedItem[]>([])
-  const pendingAutoCheckRef = useRef<Set<string>>(new Set())
-  const checkedMembersRef = useRef<Set<string>>(new Set(initialCheckedMemberIds))
-  const selectedEventIdRef = useRef(selectedEventId)
-
+  // 결과 표시 시 자동 인식 멤버 기본 선택
+  const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set())
   useEffect(() => {
-    checkedMembersRef.current = checkedMembers
-  }, [checkedMembers])
-
-  useEffect(() => {
-    selectedEventIdRef.current = selectedEventId
-  }, [selectedEventId])
-
-  // 자동 출석 체크 트리거
-  useEffect(() => {
-    if (autoMatches.length === 0) return
-
-    for (const match of autoMatches) {
-      const memberId = match.member.id
-      // 이미 처리됐거나 처리 중이면 스킵
-      if (
-        checkedMembersRef.current.has(memberId) ||
-        pendingAutoCheckRef.current.has(memberId)
-      ) continue
-
-      const eventId = selectedEventIdRef.current
-      if (!eventId) continue
-
-      pendingAutoCheckRef.current.add(memberId)
-
-      upsertAttendance(eventId, [
-        { member_id: memberId, status: '출석', checked_at: new Date().toISOString() },
-      ]).then((result) => {
-        pendingAutoCheckRef.current.delete(memberId)
-        if (!result.error) {
-          // checkedMembers 업데이트
-          checkedMembersRef.current = new Set(checkedMembersRef.current).add(memberId)
-          setCheckedMembers((prev) => new Set(prev).add(memberId))
-
-          // 사이드 리스트에 10초 동안 표시
-          setAutoCheckedList((prev) => {
-            const filtered = prev.filter((item) => item.member.id !== memberId)
-            return [...filtered, { member: match.member, expiresAt: Date.now() + 10000 }]
-          })
-        }
-      })
+    if (status === 'results') {
+      setSelectedMatchIds(new Set(autoMatches.map((m) => m.member.id)))
     }
-  }, [autoMatches]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [status, autoMatches])
 
-  // 10초 후 사이드 리스트에서 제거
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now()
-      setAutoCheckedList((prev) => {
-        const next = prev.filter((item) => item.expiresAt > now)
-        return next.length !== prev.length ? next : prev
+  const toggleMatch = (memberId: string) => {
+    setSelectedMatchIds((prev) => {
+      const next = new Set(prev)
+      next.has(memberId) ? next.delete(memberId) : next.add(memberId)
+      return next
+    })
+  }
+
+  // 선택된 멤버 일괄 출석 처리
+  const handleBatchCheck = async () => {
+    if (!selectedEventId) {
+      toast('진행중인 출석부가 없습니다', 'error')
+      return
+    }
+    const toCheck = [...selectedMatchIds].filter((id) => !checkedMembers.has(id))
+    if (toCheck.length === 0) {
+      toast('처리할 단원이 없습니다', 'info')
+      return
+    }
+    setIsChecking(true)
+    const result = await upsertAttendance(
+      selectedEventId,
+      toCheck.map((id) => ({ member_id: id, status: '출석', checked_at: new Date().toISOString() }))
+    )
+    setIsChecking(false)
+    if (result.error) {
+      toast(result.error, 'error')
+    } else {
+      setCheckedMembers((prev) => {
+        const next = new Set(prev)
+        toCheck.forEach((id) => next.add(id))
+        return next
       })
-    }, 500)
-    return () => clearInterval(interval)
-  }, [])
+      toast(`${toCheck.length}명 출석 처리 완료 ✓`)
+    }
+  }
 
-  // DB에 face_descriptor가 없는 멤버 수
+  // descriptor 없는 멤버 일괄 동기화
   const membersWithoutDescriptor = members.filter(
     (m) => !m.face_descriptor || m.face_descriptor.length !== 128
   )
-
   const handleSyncDescriptors = async () => {
     const targets = membersWithoutDescriptor
     if (targets.length === 0) {
@@ -143,7 +122,6 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
     }
     setIsSyncing(true)
     setSyncProgress({ current: 0, total: targets.length })
-
     let successCount = 0
     for (let i = 0; i < targets.length; i++) {
       const member = targets[i]
@@ -154,38 +132,13 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
       }
       setSyncProgress({ current: i + 1, total: targets.length })
     }
-
     setIsSyncing(false)
     toast(`${successCount}명의 특징값 저장 완료`)
   }
 
-  // 수동 출석 체크
-  const handleAttendanceCheck = async (memberId: string) => {
-    if (!selectedEventId) {
-      toast('진행중인 출석부가 없습니다', 'error')
-      return
-    }
-    if (checkedMembers.has(memberId)) {
-      toast('이미 출석 처리되었습니다', 'info')
-      return
-    }
-    setIsChecking(true)
-    const result = await upsertAttendance(selectedEventId, [
-      { member_id: memberId, status: '출석', checked_at: new Date().toISOString() },
-    ])
-    setIsChecking(false)
-    if (result.error) {
-      toast(result.error, 'error')
-    } else {
-      setCheckedMembers((prev) => new Set(prev).add(memberId))
-      toast('출석 처리되었습니다 ✓')
-    }
-  }
-
-  // 수동 체크 대상 중 가장 신뢰도 높은 매칭
-  const bestManualMatch = manualMatches.length > 0
-    ? manualMatches.reduce((best, m) => (m.distance < best.distance ? m : best), manualMatches[0])
-    : null
+  // 결과 화면에서 선택 가능한 총 인원 (미처리 멤버만)
+  const allMatches = [...autoMatches, ...manualMatches]
+  const uncheckedSelectedCount = [...selectedMatchIds].filter((id) => !checkedMembers.has(id)).length
 
   return (
     <div className="flex flex-col h-[100dvh] bg-black overflow-hidden">
@@ -221,7 +174,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
           <button
             onClick={flipCamera}
             className="text-white"
-            disabled={status !== 'detecting'}
+            disabled={status !== 'viewfinder'}
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
@@ -233,252 +186,295 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         </div>
       </div>
 
-      {/* Main content area */}
-      <div className="relative overflow-hidden" style={{ height: '55dvh' }}>
-        {/* Loading models */}
+      {/* 카메라 / 결과 영역 */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+
+        {/* 모델 로딩 */}
         {status === 'loading-models' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black">
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-black">
             <LoadingSpinner size="lg" className="text-white" />
             <p className="text-white text-sm">얼굴 인식 모델 로딩 중...</p>
           </div>
         )}
 
-        {/* Building descriptors */}
+        {/* Descriptor 빌드 */}
         {status === 'building-descriptors' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black px-8">
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-black px-8">
             <p className="text-white text-sm">
               단원 사진 분석 중... ({progress.current}/{progress.total})
             </p>
             <div className="w-full max-w-xs bg-white/20 rounded-full h-2">
               <div
                 className="bg-primary h-2 rounded-full transition-all duration-300"
-                style={{
-                  width: progress.total > 0
-                    ? `${(progress.current / progress.total) * 100}%`
-                    : '0%',
-                }}
+                style={{ width: progress.total > 0 ? `${(progress.current / progress.total) * 100}%` : '0%' }}
               />
             </div>
           </div>
         )}
 
-        {/* Error state */}
+        {/* 에러 */}
         {status === 'error' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black px-8">
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-black px-8">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <p className="text-white text-sm text-center">{errorMessage}</p>
-            <Button size="sm" onClick={() => window.location.reload()}>
-              다시 시도
-            </Button>
+            <Button size="sm" onClick={() => window.location.reload()}>다시 시도</Button>
           </div>
         )}
 
-        {/* No members with photos */}
+        {/* 사진 없음 */}
         {status === 'ready' && members.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black px-8">
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-black px-8">
             <p className="text-white text-sm text-center">
-              사진이 등록된 단원이 없습니다.
-              <br />
-              단원 등록 시 사진을 추가해주세요.
+              사진이 등록된 단원이 없습니다.<br />단원 등록 시 사진을 추가해주세요.
             </p>
-            <Button size="sm" onClick={() => router.push('/members')}>
-              단원 관리로 이동
-            </Button>
+            <Button size="sm" onClick={() => router.push('/members')}>단원 관리로 이동</Button>
           </div>
         )}
 
-        {/* Camera view */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className={cn(
-            'w-full h-full object-cover',
-            (status !== 'detecting' && status !== 'ready') && 'hidden'
-          )}
-        />
-        <canvas
-          ref={canvasRef}
-          className="absolute top-0 left-0 w-full h-full pointer-events-none"
-        />
+        {/* ── 뷰파인더 (촬영 대기) ── */}
+        {(status === 'viewfinder' || status === 'capturing') && (
+          <div className="relative flex-1">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
 
-        {/* 자동 출석 체크 사이드 리스트 */}
-        {autoCheckedList.length > 0 && (
-          <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
-            {autoCheckedList.map((item) => (
-              <div
-                key={`${item.member.id}-${item.expiresAt}`}
-                className="flex items-center gap-2 bg-green-600/90 backdrop-blur-sm rounded-xl px-3 py-2.5 shadow-xl"
-              >
-                <div className="w-9 h-9 rounded-full overflow-hidden bg-white/20 flex-shrink-0 flex items-center justify-center">
-                  {item.member.photo_url ? (
-                    <img
-                      src={item.member.photo_url}
-                      alt={item.member.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-xs font-bold text-white">
-                      {getInitials(item.member.name)}
-                    </span>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-white text-sm font-bold leading-none truncate max-w-[80px]">
-                    {item.member.name}
-                  </p>
-                  <p className="text-green-200 text-xs mt-0.5">자동 출석 ✓</p>
+            {/* 분석 중 오버레이 */}
+            {status === 'capturing' && (
+              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-3">
+                <LoadingSpinner size="lg" className="text-white" />
+                <p className="text-white text-sm font-medium">얼굴 인식 중...</p>
+              </div>
+            )}
+
+            {/* 힌트 */}
+            {status === 'viewfinder' && (
+              <div className="absolute top-4 left-0 right-0 flex justify-center">
+                <div className="bg-black/60 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full">
+                  단원들이 모두 보이도록 맞춰주세요
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* 촬영 버튼 */}
+            {status === 'viewfinder' && (
+              <div className="absolute bottom-8 left-0 right-0 flex justify-center">
+                <button
+                  onClick={captureAndRecognize}
+                  className="w-20 h-20 rounded-full bg-white shadow-2xl active:scale-95 transition-transform flex items-center justify-center"
+                >
+                  <div className="w-16 h-16 rounded-full border-2 border-gray-300" />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Hint overlay */}
-        {(status === 'detecting' || status === 'ready') && autoMatches.length === 0 && manualMatches.length === 0 && (
-          <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-            <div className="bg-black/60 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full animate-pulse">
-              얼굴을 카메라에 비춰주세요
+        {/* ── 결과 화면 ── */}
+        {status === 'results' && resultImageUrl && (
+          <div className="relative flex-1 flex flex-col overflow-hidden">
+            {/* 촬영 이미지 */}
+            <div className="relative bg-black flex-shrink-0" style={{ height: '42dvh' }}>
+              <img
+                src={resultImageUrl}
+                alt="촬영된 사진"
+                className="w-full h-full object-contain"
+              />
+              {/* 다시 찍기 */}
+              <button
+                onClick={retake}
+                className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm text-white text-sm px-3 py-2 rounded-xl"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 4v6h-6" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                다시 찍기
+              </button>
             </div>
+
+            {/* 인식 결과 리스트 */}
+            <div className="flex-1 bg-white overflow-y-auto pb-safe">
+
+              {/* 출석부 선택 (2개 이상) */}
+              {activeEvents.length > 1 && (
+                <div className="px-4 pt-3 pb-1">
+                  <select
+                    value={selectedEventId}
+                    onChange={(e) => setSelectedEventId(e.target.value)}
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-gray-50"
+                  >
+                    {activeEvents.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {ev.event_name} ({ev.event_date})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 인식 결과 없음 */}
+              {allMatches.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M20 21a8 8 0 1 0-16 0" />
+                    <line x1="18" y1="6" x2="22" y2="10" />
+                    <line x1="22" y1="6" x2="18" y2="10" />
+                  </svg>
+                  <p className="text-sm">인식된 단원이 없습니다</p>
+                  <button
+                    onClick={retake}
+                    className="text-sm text-primary font-medium"
+                  >
+                    다시 찍기
+                  </button>
+                </div>
+              )}
+
+              {/* 자동 인식 (녹색) */}
+              {autoMatches.length > 0 && (
+                <div className="px-4 pt-4 pb-2">
+                  <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">
+                    자동 인식 · {autoMatches.length}명
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {autoMatches.map((match) => (
+                      <MatchCard
+                        key={match.member.id}
+                        match={match}
+                        isAuto
+                        isSelected={selectedMatchIds.has(match.member.id)}
+                        isAlreadyChecked={checkedMembers.has(match.member.id)}
+                        onToggle={() => toggleMatch(match.member.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 확인 필요 (주황) */}
+              {manualMatches.length > 0 && (
+                <div className="px-4 pt-3 pb-2">
+                  <p className="text-xs font-semibold text-amber-500 uppercase tracking-wide mb-2">
+                    확인 필요 · {manualMatches.length}명
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {manualMatches.map((match) => (
+                      <MatchCard
+                        key={match.member.id}
+                        match={match}
+                        isAuto={false}
+                        isSelected={selectedMatchIds.has(match.member.id)}
+                        isAlreadyChecked={checkedMembers.has(match.member.id)}
+                        onToggle={() => toggleMatch(match.member.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 하단 여백 (버튼 높이만큼) */}
+              {allMatches.length > 0 && <div className="h-24" />}
+            </div>
+
+            {/* 출석 처리 버튼 (고정) */}
+            {allMatches.length > 0 && activeEvents.length > 0 && (
+              <div className="absolute bottom-0 left-0 right-0 px-4 bg-white/90 backdrop-blur-sm border-t border-gray-100 pt-3 pb-safe" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
+                <button
+                  onClick={handleBatchCheck}
+                  disabled={isChecking || uncheckedSelectedCount === 0}
+                  className={cn(
+                    'w-full py-3.5 rounded-xl font-bold text-base transition-colors',
+                    uncheckedSelectedCount > 0
+                      ? 'bg-primary text-white active:bg-primary/80'
+                      : 'bg-gray-100 text-gray-400'
+                  )}
+                >
+                  {isChecking
+                    ? '처리 중...'
+                    : uncheckedSelectedCount > 0
+                      ? `${uncheckedSelectedCount}명 출석 처리`
+                      : '모두 처리 완료'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* 수동 체크 카드 (80~90% 신뢰도) */}
-      {bestManualMatch && (
-        <div className="bg-white safe-bottom flex-1 overflow-y-auto">
-          {/* 진행중 출석부 선택 (2개 이상일 때만 표시) */}
-          {activeEvents.length > 1 && (
-            <div className="px-4 pt-3 pb-1">
-              <select
-                value={selectedEventId}
-                onChange={(e) => setSelectedEventId(e.target.value)}
-                className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-gray-50"
-              >
-                {activeEvents.map((ev) => (
-                  <option key={ev.id} value={ev.id}>
-                    {ev.event_name} ({ev.event_date})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="px-4 py-4 flex items-center gap-3">
-            {/* 주황색 점으로 수동 체크 표시 */}
-            <div className="relative flex-shrink-0">
-              <button
-                onClick={() => {
-                  stopCamera()
-                  router.push(`/members/${bestManualMatch.member.id}`)
-                }}
-                className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center"
-              >
-                {bestManualMatch.member.photo_url ? (
-                  <img
-                    src={bestManualMatch.member.photo_url}
-                    alt={bestManualMatch.member.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-xl font-semibold text-muted">
-                    {getInitials(bestManualMatch.member.name)}
-                  </span>
-                )}
-              </button>
-              <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-400 border-2 border-white" />
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <button
-                onClick={() => {
-                  stopCamera()
-                  router.push(`/members/${bestManualMatch.member.id}`)
-                }}
-                className="text-left"
-              >
-                <div className="flex items-baseline gap-2">
-                  {bestManualMatch.member.group_number && (
-                    <span className="text-lg font-bold text-muted">{bestManualMatch.member.group_number}조</span>
-                  )}
-                  <p className="font-bold text-2xl">{bestManualMatch.member.name}</p>
-                </div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <Badge>{bestManualMatch.member.department}</Badge>
-                  <Badge>{bestManualMatch.member.part}</Badge>
-                  <span className="text-xs text-amber-500 font-medium">확인 필요</span>
-                </div>
-              </button>
-            </div>
-
-            {activeEvents.length > 0 && (
-              <button
-                onClick={() => handleAttendanceCheck(bestManualMatch.member.id)}
-                disabled={isChecking || checkedMembers.has(bestManualMatch.member.id)}
-                className={cn(
-                  'flex-shrink-0 px-4 py-3 rounded-xl text-sm font-bold transition-colors',
-                  checkedMembers.has(bestManualMatch.member.id)
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-primary text-white active:bg-primary/80',
-                  isChecking && 'opacity-50'
-                )}
-              >
-                {checkedMembers.has(bestManualMatch.member.id) ? '출석 ✓' : isChecking ? '처리중...' : '출석 체크'}
-              </button>
-            )}
-          </div>
-
-          {/* Multiple manual matches */}
-          {manualMatches.length > 1 && (
-            <div className="px-4 pb-3 flex gap-2 overflow-x-auto">
-              {manualMatches
-                .filter((m) => m !== bestManualMatch)
-                .map((match) => (
-                  <button
-                    key={match.member.id}
-                    onClick={() => {
-                      if (activeEvents.length > 0) {
-                        handleAttendanceCheck(match.member.id)
-                      } else {
-                        stopCamera()
-                        router.push(`/members/${match.member.id}`)
-                      }
-                    }}
-                    className={cn(
-                      'flex items-center gap-2 px-3 py-2 rounded-lg flex-shrink-0',
-                      checkedMembers.has(match.member.id)
-                        ? 'bg-green-50 ring-1 ring-green-300'
-                        : 'bg-gray-50 active:bg-gray-100'
-                    )}
-                  >
-                    <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
-                      {match.member.photo_url ? (
-                        <img
-                          src={match.member.photo_url}
-                          alt={match.member.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-xs font-semibold text-muted">
-                          {getInitials(match.member.name)}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-sm font-medium">{match.member.name}</span>
-                    {checkedMembers.has(match.member.id) && (
-                      <span className="text-green-600 text-xs font-bold">✓</span>
-                    )}
-                  </button>
-                ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
+  )
+}
+
+// ── 멤버 카드 컴포넌트 ──
+interface MatchCardProps {
+  match: { member: MemberWithPhoto; distance: number }
+  isAuto: boolean
+  isSelected: boolean
+  isAlreadyChecked: boolean
+  onToggle: () => void
+}
+
+function MatchCard({ match, isAuto, isSelected, isAlreadyChecked, onToggle }: MatchCardProps) {
+  const { member } = match
+  const accentColor = isAuto ? 'border-green-400' : 'border-amber-400'
+  const checkColor = isAuto ? 'bg-green-500' : 'bg-amber-400'
+
+  return (
+    <button
+      onClick={onToggle}
+      disabled={isAlreadyChecked}
+      className={cn(
+        'flex items-center gap-3 w-full px-3 py-2.5 rounded-xl border-l-4 bg-gray-50 active:bg-gray-100 transition-colors text-left',
+        accentColor,
+        isAlreadyChecked && 'opacity-60'
+      )}
+    >
+      {/* 아바타 */}
+      <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center">
+        {member.photo_url ? (
+          <img src={member.photo_url} alt={member.name} className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-sm font-bold text-muted">{getInitials(member.name)}</span>
+        )}
+      </div>
+
+      {/* 이름 + 정보 */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-1.5">
+          {member.group_number && (
+            <span className="text-sm font-bold text-muted">{member.group_number}조</span>
+          )}
+          <span className="font-bold text-base truncate">{member.name}</span>
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <Badge>{member.department}</Badge>
+          <Badge>{member.part}</Badge>
+        </div>
+      </div>
+
+      {/* 체크박스 */}
+      <div className={cn(
+        'w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center border-2 transition-colors',
+        isAlreadyChecked
+          ? 'bg-green-500 border-green-500'
+          : isSelected
+            ? `${checkColor} border-transparent`
+            : 'border-gray-300 bg-white'
+      )}>
+        {(isSelected || isAlreadyChecked) && (
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </div>
+    </button>
   )
 }
