@@ -238,9 +238,11 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
         {/* ── 뷰파인더 (촬영 대기) ── */}
         {/* video는 항상 DOM에 존재해야 videoRef가 startCamera() 시점에 유효함 */}
         <div className={cn(
-          'relative flex-1',
+          'flex-1 flex flex-col',
           (status !== 'viewfinder' && status !== 'capturing') && 'hidden'
         )}>
+          {/* 카메라 영상 영역 */}
+          <div className="relative flex-1 overflow-hidden">
             <video
               ref={videoRef}
               autoPlay
@@ -265,19 +267,20 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
                 </div>
               </div>
             )}
+          </div>
 
-            {/* 촬영 버튼 */}
+          {/* 촬영 버튼 영역 - video 밖에 고정 배치 */}
+          <div className="flex-shrink-0 h-24 flex items-center justify-center bg-black">
             {status === 'viewfinder' && (
-              <div className="absolute bottom-8 left-0 right-0 flex justify-center">
-                <button
-                  onClick={captureAndRecognize}
-                  className="w-20 h-20 rounded-full bg-white shadow-2xl active:scale-95 transition-transform flex items-center justify-center"
-                >
-                  <div className="w-16 h-16 rounded-full border-2 border-gray-300" />
-                </button>
-              </div>
+              <button
+                onClick={captureAndRecognize}
+                className="w-20 h-20 rounded-full bg-white shadow-2xl active:scale-95 transition-transform flex items-center justify-center"
+              >
+                <div className="w-16 h-16 rounded-full border-2 border-gray-300" />
+              </button>
             )}
           </div>
+        </div>
 
         {/* ── 결과 화면 ── */}
         {status === 'results' && resultImageUrl && (
