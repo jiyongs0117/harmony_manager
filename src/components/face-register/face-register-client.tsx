@@ -48,7 +48,7 @@ const EMPTY_INFO: MemberInfoForm = {
 // ─── 상수 ────────────────────────────────────────────────────────────
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
-const CAPTURE_ANGLES: CaptureAngle[] = ['front', 'left', 'right']
+const CAPTURE_ANGLES: CaptureAngle[] = ['front']
 const CHURCH_POSITIONS = ['집사', '안수집사', '장로', '평신도']
 
 const ANGLE_LABELS: Record<CaptureAngle, string> = {
@@ -239,10 +239,34 @@ export function FaceRegisterClient() {
     }
   }
 
-  // ─── 얼굴 등록 시작 버튼 핸들러 ──────────────────────────────────────
-  function handleStartFaceCapture() {
+  // ─── 저장 및 얼굴등록 버튼 핸들러 ──────────────────────────────────────
+  const [isSavingInfo, setIsSavingInfo] = useState(false)
+
+  async function handleStartFaceCapture() {
+    if (!foundMember) return
     setCameraError(null)
     setSaveError(null)
+    setIsSavingInfo(true)
+
+    const info: MemberInfoInput = {
+      church_position: memberInfo.church_position || null,
+      date_of_birth: memberInfo.date_of_birth || null,
+      district: memberInfo.district || null,
+      area: memberInfo.area || null,
+      church_registration_year: memberInfo.church_registration_year || null,
+      choir_join_year: memberInfo.choir_join_year || null,
+      address: memberInfo.address || null,
+      prayer_request: memberInfo.prayer_request.trim() || null,
+    }
+
+    const result = await updateMemberInfo(foundMember.id, info)
+    setIsSavingInfo(false)
+
+    if (result.error) {
+      setSaveError(result.error)
+      return
+    }
+
     setStep('camera-init')
   }
 
@@ -385,26 +409,12 @@ export function FaceRegisterClient() {
     setStep('processing')
     setSaveError(null)
 
-    const info: MemberInfoInput = {
-      church_position: memberInfo.church_position || null,
-      date_of_birth: memberInfo.date_of_birth || null,
-      district: memberInfo.district || null,
-      area: memberInfo.area || null,
-      church_registration_year: memberInfo.church_registration_year || null,
-      choir_join_year: memberInfo.choir_join_year || null,
-      address: memberInfo.address || null,
-      prayer_request: memberInfo.prayer_request.trim() || null,
-    }
-
-    const [faceResult] = await Promise.all([
-      updateFaceDescriptors(
-        foundMember.id,
-        descriptors,
-        privacyConsentRef.current,
-        capturedFrontPhotoRef.current ?? undefined,
-      ),
-      updateMemberInfo(foundMember.id, info),
-    ])
+    const faceResult = await updateFaceDescriptors(
+      foundMember.id,
+      descriptors,
+      privacyConsentRef.current,
+      capturedFrontPhotoRef.current ?? undefined,
+    )
 
     if (faceResult.error) {
       setSaveError(faceResult.error)
@@ -576,7 +586,7 @@ export function FaceRegisterClient() {
             <ul className="text-white/40 text-xs flex flex-col gap-1 mt-1">
               <li>· 직분, 생년월일, 교구/구역, 등록연도</li>
               <li>· 주소, 개인 기도제목</li>
-              <li>· 3방향 얼굴 촬영 (정면·좌측·우측)</li>
+              <li>· 정면 얼굴 촬영</li>
             </ul>
           </div>
 
@@ -744,10 +754,10 @@ export function FaceRegisterClient() {
           {/* 얼굴 등록 시작 */}
           <button
             onClick={handleStartFaceCapture}
-            disabled={!privacyConsent}
+            disabled={!privacyConsent || isSavingInfo}
             className="w-full bg-white text-black font-semibold py-4 rounded-xl text-base disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all mb-4"
           >
-            얼굴 등록 시작
+            {isSavingInfo ? '저장 중...' : '저장 및 얼굴등록'}
           </button>
         </div>
       )}
