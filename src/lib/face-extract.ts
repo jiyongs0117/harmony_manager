@@ -83,14 +83,14 @@ function analyzePhotoQuality(
   const faceArea = box.width * box.height
   const sizeRatio = faceArea / imgArea
 
-  if (sizeRatio < 0.08) {
+  if (sizeRatio < 0.15) {
     quality.level = 'warning'
     quality.warnings.push('얼굴이 너무 작아요. 더 가까이서 찍은 사진을 사용하면 인식률이 높아져요.')
   }
 
-  // 2. 검출 신뢰도 체크
+  // 2. 검출 신뢰도 체크 (0.75→0.85 강화)
   const score = detection.detection.score
-  if (score < 0.75) {
+  if (score < 0.85) {
     quality.level = 'warning'
     quality.warnings.push('사진이 흐리거나 조명이 어두워요. 밝은 곳에서 찍은 사진을 추천해요.')
   }
@@ -104,7 +104,7 @@ function analyzePhotoQuality(
   const midEyeX   = (leftEyeX + rightEyeX) / 2
   const angleRatio = Math.abs(noseTipX - midEyeX) / box.width
 
-  if (angleRatio > 0.12) {
+  if (angleRatio > 0.10) {
     quality.level = 'warning'
     quality.warnings.push('얼굴이 옆을 향하고 있어요. 정면을 바라보는 사진을 사용하면 인식률이 높아져요.')
   }

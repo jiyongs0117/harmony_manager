@@ -48,7 +48,7 @@ const EMPTY_INFO: MemberInfoForm = {
 // ─── 상수 ────────────────────────────────────────────────────────────
 const MODEL_URL = '/models'
 const DETECTION_INTERVAL_MS = 500
-const CAPTURE_ANGLES: CaptureAngle[] = ['front']
+const CAPTURE_ANGLES: CaptureAngle[] = ['front', 'front', 'front']
 const CHURCH_POSITIONS = ['집사', '안수집사', '장로', '평신도']
 
 const ANGLE_LABELS: Record<CaptureAngle, string> = {
@@ -60,6 +60,14 @@ const ANGLE_GUIDES: Record<CaptureAngle, string> = {
   front: '카메라를 정면으로 바라봐 주세요',
   left: '천천히 왼쪽으로 45° 돌려주세요',
   right: '천천히 오른쪽으로 45° 돌려주세요',
+}
+
+/** 다중 캡처 시 촬영 순서별 안내 메시지 */
+function getCaptureGuide(index: number, total: number): string {
+  if (total <= 1) return ANGLE_GUIDES['front']
+  if (index === 0) return '정면을 바라봐 주세요 (1차 촬영)'
+  if (index === 1) return '표정을 살짝 바꾸고 정면을 바라봐 주세요 (2차 촬영)'
+  return '고개를 아주 살짝 기울여 주세요 (3차 촬영)'
 }
 
 // ─── 공통 인풋 스타일 ─────────────────────────────────────────────────
@@ -819,18 +827,18 @@ export function FaceRegisterClient() {
             <div className="bg-black px-6 py-5 flex-shrink-0">
               <div className="text-center mb-4">
                 <p className="text-white font-semibold text-lg">
-                  {ANGLE_LABELS[currentAngle]} 촬영 ({currentAngleIndex + 1} / {CAPTURE_ANGLES.length})
+                  촬영 ({currentAngleIndex + 1} / {CAPTURE_ANGLES.length})
                 </p>
                 <p className="text-white/50 text-sm mt-1">
                   {faceDetected
                     ? countdown !== null ? `${countdown}초 후 자동 촬영됩니다` : '얼굴이 감지되었습니다'
-                    : ANGLE_GUIDES[currentAngle]}
+                    : getCaptureGuide(currentAngleIndex, CAPTURE_ANGLES.length)}
                 </p>
               </div>
 
               <div className="flex justify-center gap-4">
-                {CAPTURE_ANGLES.map((angle, i) => (
-                  <div key={angle} className="flex flex-col items-center gap-1.5">
+                {CAPTURE_ANGLES.map((_angle, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1.5">
                     <div className={cn(
                       'w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300',
                       i < capturedCount ? 'bg-green-500 text-white scale-105' :
@@ -841,7 +849,7 @@ export function FaceRegisterClient() {
                     <span className={cn('text-xs transition-colors',
                       i < capturedCount ? 'text-green-400' :
                       i === currentAngleIndex ? 'text-white' : 'text-white/30',
-                    )}>{ANGLE_LABELS[angle]}</span>
+                    )}>{i + 1}차</span>
                   </div>
                 ))}
               </div>

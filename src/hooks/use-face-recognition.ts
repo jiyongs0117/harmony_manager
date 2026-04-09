@@ -31,8 +31,8 @@ export type RecognitionStatus =
   | 'error'
 
 const MODEL_URL = '/models'
-const MATCH_THRESHOLD = 0.45       // 이 이상이면 무시
-const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 (녹색)
+const MATCH_THRESHOLD = 0.38       // 이 이상이면 무시 (0.45→0.38 오인식 방지)
+const AUTO_CHECK_THRESHOLD = 0.28  // 이 이하면 자동 출석 (녹색, 0.30→0.28 정확도 향상)
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')
@@ -183,7 +183,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
   // canvas → 매칭 결과 공통 처리
   const detectOnCanvas = useCallback(async (canvas: HTMLCanvasElement) => {
     const detections = await faceapi
-      .detectAllFaces(canvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 }))
+      .detectAllFaces(canvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
       .withFaceLandmarks()
       .withFaceDescriptors()
 
