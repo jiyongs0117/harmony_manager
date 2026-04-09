@@ -1,6 +1,6 @@
 'use client'
 
-import * as faceapi from 'face-api.js'
+import * as faceapi from '@vladmandic/face-api'
 
 const MODEL_URL = '/models'
 let modelsLoaded = false

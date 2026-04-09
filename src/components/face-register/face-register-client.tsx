@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect, useCallback } from 'react'
-import * as faceapi from 'face-api.js'
+import * as faceapi from '@vladmandic/face-api'
 import { cn } from '@/lib/utils'
 import {
   searchMembersByName,
