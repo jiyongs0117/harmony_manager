@@ -29,21 +29,33 @@ export default async function MembersPage({ searchParams }: Props) {
 
   const { data: rawMembers } = await query
 
-  // 조 번호를 숫자로 정렬 (10조가 1조 다음에 오는 문제 해결)
-  const groupSort = (a: string | null, b: string | null) => {
+  // 조 번호 자연 정렬: "1", "2-A", "2-B", "3-A", ..., "10"
+  // 숫자/문자 청크로 분리해 청크 단위로 비교
+  const naturalCompare = (a: string | null, b: string | null) => {
     if (!a && !b) return 0
     if (!a) return 1
     if (!b) return -1
-    const na = parseInt(a, 10)
-    const nb = parseInt(b, 10)
-    if (isNaN(na) && isNaN(nb)) return a.localeCompare(b)
-    if (isNaN(na)) return 1
-    if (isNaN(nb)) return -1
-    return na - nb
+    const re = /(\d+)|(\D+)/g
+    const ca = a.match(re) ?? []
+    const cb = b.match(re) ?? []
+    const len = Math.min(ca.length, cb.length)
+    for (let i = 0; i < len; i++) {
+      const sa = ca[i]
+      const sb = cb[i]
+      const na = parseInt(sa, 10)
+      const nb = parseInt(sb, 10)
+      if (!isNaN(na) && !isNaN(nb)) {
+        if (na !== nb) return na - nb
+      } else {
+        const cmp = sa.localeCompare(sb)
+        if (cmp !== 0) return cmp
+      }
+    }
+    return ca.length - cb.length
   }
 
   const members = rawMembers?.slice().sort((a, b) => {
-    const g = groupSort(a.group_number, b.group_number)
+    const g = naturalCompare(a.group_number, b.group_number)
     if (g !== 0) return g
     return (a.name ?? '').localeCompare(b.name ?? '')
   })
@@ -55,7 +67,7 @@ export default async function MembersPage({ searchParams }: Props) {
     .not('group_number', 'is', null)
 
   const groups = [...new Set(allMembers?.map((m) => m.group_number).filter(Boolean) as string[])]
-    .sort((a, b) => groupSort(a, b))
+    .sort((a, b) => naturalCompare(a, b))
 
   return (
     <div className="relative">

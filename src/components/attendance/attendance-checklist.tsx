@@ -128,11 +128,30 @@ export function AttendanceChecklist({ eventId, eventStatus, members, records }: 
     return acc
   }, {})
 
-  // 조 번호 순 정렬 (미배정은 맨 뒤)
+  // 조 번호 자연 정렬 (1, 2-A, 2-B, 3-A, ..., 10), 미배정은 맨 뒤
+  const naturalCompare = (a: string, b: string) => {
+    const re = /(\d+)|(\D+)/g
+    const ca = a.match(re) ?? []
+    const cb = b.match(re) ?? []
+    const len = Math.min(ca.length, cb.length)
+    for (let i = 0; i < len; i++) {
+      const sa = ca[i]
+      const sb = cb[i]
+      const na = parseInt(sa, 10)
+      const nb = parseInt(sb, 10)
+      if (!isNaN(na) && !isNaN(nb)) {
+        if (na !== nb) return na - nb
+      } else {
+        const cmp = sa.localeCompare(sb)
+        if (cmp !== 0) return cmp
+      }
+    }
+    return ca.length - cb.length
+  }
   const sortedGroups = Object.keys(grouped).sort((a, b) => {
     if (a === '미배정') return 1
     if (b === '미배정') return -1
-    return Number(a) - Number(b)
+    return naturalCompare(a, b)
   })
 
   return (
