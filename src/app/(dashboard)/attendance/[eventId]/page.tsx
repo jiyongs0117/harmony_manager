@@ -25,12 +25,30 @@ export default async function AttendanceChecklistPage({ params }: Props) {
   }
 
   // 활동 중인 단원 목록
-  const { data: members } = await supabase
+  const { data: rawMembers } = await supabase
     .from('members')
     .select('*')
     .or('status.eq.활동,status.is.null')
-    .order('group_number')
     .order('name')
+
+  // 조 번호를 숫자로 정렬
+  const groupSort = (a: string | null, b: string | null) => {
+    if (!a && !b) return 0
+    if (!a) return 1
+    if (!b) return -1
+    const na = parseInt(a, 10)
+    const nb = parseInt(b, 10)
+    if (isNaN(na) && isNaN(nb)) return a.localeCompare(b)
+    if (isNaN(na)) return 1
+    if (isNaN(nb)) return -1
+    return na - nb
+  }
+
+  const members = rawMembers?.slice().sort((a, b) => {
+    const g = groupSort(a.group_number, b.group_number)
+    if (g !== 0) return g
+    return (a.name ?? '').localeCompare(b.name ?? '')
+  })
 
   // 기존 출석 기록
   const { data: records } = await supabase

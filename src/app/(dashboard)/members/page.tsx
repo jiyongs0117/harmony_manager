@@ -15,7 +15,7 @@ export default async function MembersPage({ searchParams }: Props) {
   const params = await searchParams
   const supabase = await createClient()
 
-  let query = supabase.from('members').select('*').order('department').order('part').order('group_number').order('name')
+  let query = supabase.from('members').select('*').order('department').order('part').order('name')
 
   if (params.search) {
     query = query.ilike('name', `%${params.search}%`)
@@ -27,7 +27,26 @@ export default async function MembersPage({ searchParams }: Props) {
     query = query.eq('status', params.status)
   }
 
-  const { data: members } = await query
+  const { data: rawMembers } = await query
+
+  // 조 번호를 숫자로 정렬 (10조가 1조 다음에 오는 문제 해결)
+  const groupSort = (a: string | null, b: string | null) => {
+    if (!a && !b) return 0
+    if (!a) return 1
+    if (!b) return -1
+    const na = parseInt(a, 10)
+    const nb = parseInt(b, 10)
+    if (isNaN(na) && isNaN(nb)) return a.localeCompare(b)
+    if (isNaN(na)) return 1
+    if (isNaN(nb)) return -1
+    return na - nb
+  }
+
+  const members = rawMembers?.slice().sort((a, b) => {
+    const g = groupSort(a.group_number, b.group_number)
+    if (g !== 0) return g
+    return (a.name ?? '').localeCompare(b.name ?? '')
+  })
 
   // 조 목록 추출 (필터용)
   const { data: allMembers } = await supabase
@@ -35,7 +54,8 @@ export default async function MembersPage({ searchParams }: Props) {
     .select('group_number')
     .not('group_number', 'is', null)
 
-  const groups = [...new Set(allMembers?.map((m) => m.group_number).filter(Boolean) as string[])].sort()
+  const groups = [...new Set(allMembers?.map((m) => m.group_number).filter(Boolean) as string[])]
+    .sort((a, b) => groupSort(a, b))
 
   return (
     <div className="relative">
