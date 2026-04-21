@@ -1,7 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { MemberDetailCard } from '@/components/members/member-detail-card'
 import type { Member } from '@/lib/types'
+import { getCurrentLeader, canAccessDeptPart } from '@/lib/auth/leader-context'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -9,7 +9,8 @@ interface Props {
 
 export default async function MemberDetailPage({ params }: Props) {
   const { id } = await params
-  const supabase = await createClient()
+  const { supabase, leader } = await getCurrentLeader()
+  if (!leader) redirect('/login')
 
   const { data: member } = await supabase
     .from('members')
@@ -21,5 +22,10 @@ export default async function MemberDetailPage({ params }: Props) {
     notFound()
   }
 
-  return <MemberDetailCard member={member as Member} />
+  const m = member as Member
+  if (!canAccessDeptPart(leader, m.department, m.part)) {
+    redirect('/unauthorized')
+  }
+
+  return <MemberDetailCard member={m} />
 }

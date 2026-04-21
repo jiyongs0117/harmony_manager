@@ -1,9 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { AttendanceChecklist } from '@/components/attendance/attendance-checklist'
 import { Badge } from '@/components/ui/badge'
 import { formatDate } from '@/lib/utils'
 import type { AttendanceEvent, Member, AttendanceRecord } from '@/lib/types'
+import { getCurrentLeader, canAccessDeptPart } from '@/lib/auth/leader-context'
 
 interface Props {
   params: Promise<{ eventId: string }>
@@ -11,7 +11,8 @@ interface Props {
 
 export default async function AttendanceChecklistPage({ params }: Props) {
   const { eventId } = await params
-  const supabase = await createClient()
+  const { supabase, leader } = await getCurrentLeader()
+  if (!leader) redirect('/login')
 
   // 이벤트 정보
   const { data: event } = await supabase
@@ -24,10 +25,17 @@ export default async function AttendanceChecklistPage({ params }: Props) {
     notFound()
   }
 
-  // 활동 중인 단원 목록
+  const typedEvent = event as AttendanceEvent
+  if (!canAccessDeptPart(leader, typedEvent.department, typedEvent.part)) {
+    redirect('/unauthorized')
+  }
+
+  // 이벤트의 department/part 에 속한 활동 중인 단원 목록
   const { data: rawMembers } = await supabase
     .from('members')
     .select('*')
+    .eq('department', typedEvent.department)
+    .eq('part', typedEvent.part)
     .or('status.eq.활동,status.is.null')
     .order('name')
 
@@ -66,8 +74,6 @@ export default async function AttendanceChecklistPage({ params }: Props) {
     .from('attendance_records')
     .select('*')
     .eq('event_id', eventId)
-
-  const typedEvent = event as AttendanceEvent
 
   return (
     <div>

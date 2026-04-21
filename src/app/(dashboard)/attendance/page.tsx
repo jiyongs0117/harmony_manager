@@ -1,19 +1,25 @@
-import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { PageHeader } from '@/components/layout/page-header'
 import { EventCard } from '@/components/attendance/event-card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import type { AttendanceEvent } from '@/lib/types'
+import { getCurrentLeader, isAdmin } from '@/lib/auth/leader-context'
 
 export default async function AttendancePage() {
-  const supabase = await createClient()
+  const { supabase, leader } = await getCurrentLeader()
+  if (!leader) redirect('/login')
 
-  const { data: events } = await supabase
+  let eventsQuery = supabase
     .from('attendance_events')
     .select('*')
     .order('event_date', { ascending: false })
     .order('created_at', { ascending: false })
+  if (!isAdmin(leader)) {
+    eventsQuery = eventsQuery.eq('department', leader.department).eq('part', leader.part)
+  }
+  const { data: events } = await eventsQuery
 
   // 각 이벤트별 출석 통계 조회
   const eventStats = await Promise.all(

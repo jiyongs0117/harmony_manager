@@ -1,7 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { LONG_TERM_ABSENCE_THRESHOLD } from '@/lib/constants'
+import { getCurrentLeader, isAdmin, canAccessDeptPart } from '@/lib/auth/leader-context'
 import type { MemberAttendanceStats, Member, AttendanceEvent, AttendanceRecord } from '@/lib/types'
 
 export async function getAttendanceStats(): Promise<{
@@ -10,22 +10,40 @@ export async function getAttendanceStats(): Promise<{
   averageRate: number
   memberStats: MemberAttendanceStats[]
 }> {
-  const supabase = await createClient()
+  const { supabase, leader } = await getCurrentLeader()
+  if (!leader) {
+    return { totalMembers: 0, totalEvents: 0, averageRate: 0, memberStats: [] }
+  }
 
-  const { data: members } = await supabase
+  let membersQuery = supabase
     .from('members')
     .select('id, name, photo_url, group_number')
     .or('status.eq.활동,status.is.null')
     .order('name')
+  if (!isAdmin(leader)) {
+    membersQuery = membersQuery.eq('department', leader.department).eq('part', leader.part)
+  }
+  const { data: members } = await membersQuery
 
-  const { data: events } = await supabase
+  let eventsQuery = supabase
     .from('attendance_events')
     .select('id, event_date')
     .order('event_date', { ascending: false })
+  if (!isAdmin(leader)) {
+    eventsQuery = eventsQuery.eq('department', leader.department).eq('part', leader.part)
+  }
+  const { data: events } = await eventsQuery
 
-  const { data: records } = await supabase
-    .from('attendance_records')
-    .select('member_id, event_id, status')
+  // records 는 event_id 기준으로 필터 (leader의 dept/part 이벤트에 속하는 기록만)
+  const eventIdsForFilter = (events ?? []).map((e) => e.id)
+  let records: { member_id: string; event_id: string; status: string }[] = []
+  if (eventIdsForFilter.length > 0) {
+    const { data } = await supabase
+      .from('attendance_records')
+      .select('member_id, event_id, status')
+      .in('event_id', eventIdsForFilter)
+    records = (data ?? []) as typeof records
+  }
 
   if (!members || !events || !records) {
     return { totalMembers: 0, totalEvents: 0, averageRate: 0, memberStats: [] }
@@ -87,7 +105,8 @@ export async function getMemberAttendanceHistory(memberId: string): Promise<{
   member: Member | null
   history: { event: AttendanceEvent; record: AttendanceRecord | null }[]
 }> {
-  const supabase = await createClient()
+  const { supabase, leader } = await getCurrentLeader()
+  if (!leader) return { member: null, history: [] }
 
   const { data: member } = await supabase
     .from('members')
@@ -95,10 +114,23 @@ export async function getMemberAttendanceHistory(memberId: string): Promise<{
     .eq('id', memberId)
     .single()
 
-  const { data: events } = await supabase
+  if (!member) return { member: null, history: [] }
+
+  const m = member as Member
+  if (!canAccessDeptPart(leader, m.department, m.part)) {
+    return { member: null, history: [] }
+  }
+
+  let histEventsQuery = supabase
     .from('attendance_events')
     .select('*')
     .order('event_date', { ascending: false })
+  if (!isAdmin(leader)) {
+    histEventsQuery = histEventsQuery
+      .eq('department', leader.department)
+      .eq('part', leader.part)
+  }
+  const { data: events } = await histEventsQuery
 
   const { data: records } = await supabase
     .from('attendance_records')
@@ -110,5 +142,5 @@ export async function getMemberAttendanceHistory(memberId: string): Promise<{
     record: (records ?? []).find((r) => r.event_id === event.id) as AttendanceRecord | null,
   }))
 
-  return { member: member as Member | null, history }
+  return { member: m, history }
 }

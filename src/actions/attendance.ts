@@ -46,10 +46,12 @@ export async function createEvent(formData: EventFormData) {
     return { error: '이벤트 생성에 실패했습니다: ' + error.message }
   }
 
-  // 활동 중인 모든 단원에 대해 기본 결석 레코드 생성
+  // 이벤트의 department/part 에 속한 활동 중인 단원에 대해 기본 결석 레코드 생성
   const { data: members } = await supabase
     .from('members')
     .select('id')
+    .eq('department', leader.department)
+    .eq('part', leader.part)
     .or('status.eq.활동,status.is.null')
 
   if (members && members.length > 0) {

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { PageHeader } from '@/components/layout/page-header'
 import { MemberList } from '@/components/members/member-card'
 import { MemberFilters } from '@/components/members/member-filters'
@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import type { Member } from '@/lib/types'
+import { getCurrentLeader, isAdmin } from '@/lib/auth/leader-context'
 
 interface Props {
   searchParams: Promise<{ search?: string; group?: string; status?: string }>
@@ -13,10 +14,19 @@ interface Props {
 
 export default async function MembersPage({ searchParams }: Props) {
   const params = await searchParams
-  const supabase = await createClient()
+  const { supabase, leader } = await getCurrentLeader()
+  if (!leader) redirect('/login')
 
-  let query = supabase.from('members').select('*').order('department').order('part').order('name')
+  let query = supabase
+    .from('members')
+    .select('*')
+    .order('department')
+    .order('part')
+    .order('name')
 
+  if (!isAdmin(leader)) {
+    query = query.eq('department', leader.department).eq('part', leader.part)
+  }
   if (params.search) {
     query = query.ilike('name', `%${params.search}%`)
   }
@@ -60,11 +70,12 @@ export default async function MembersPage({ searchParams }: Props) {
     return (a.name ?? '').localeCompare(b.name ?? '')
   })
 
-  // 조 목록 추출 (필터용)
-  const { data: allMembers } = await supabase
-    .from('members')
-    .select('group_number')
-    .not('group_number', 'is', null)
+  // 조 목록 추출 (필터용) — 파트장 소속 기준
+  let groupsQuery = supabase.from('members').select('group_number').not('group_number', 'is', null)
+  if (!isAdmin(leader)) {
+    groupsQuery = groupsQuery.eq('department', leader.department).eq('part', leader.part)
+  }
+  const { data: allMembers } = await groupsQuery
 
   const groups = [...new Set(allMembers?.map((m) => m.group_number).filter(Boolean) as string[])]
     .sort((a, b) => naturalCompare(a, b))
