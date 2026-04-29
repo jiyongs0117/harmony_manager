@@ -28,7 +28,13 @@ function setupWorkerEnv() {
     createVideoElement: () => {
       throw new Error('createVideoElement not available in worker')
     },
-    fetch: (url: string, init?: RequestInit) => self.fetch(url, init),
+    fetch: (url: string, init?: RequestInit) => {
+      // Worker fetch는 상대 URL을 거부하므로 self.location 기준으로 절대화
+      const absolute = /^(https?:|blob:|data:)/.test(url)
+        ? url
+        : new URL(url, self.location.href).href
+      return self.fetch(absolute, init)
+    },
     readFile: () => Promise.reject(new Error('readFile not available in worker')),
   }
   faceapi.env.setEnv(workerEnv as unknown as faceapi.Environment)
