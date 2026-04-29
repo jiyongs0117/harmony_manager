@@ -1,7 +1,6 @@
 'use client'
 
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
-import * as faceapi from '@vladmandic/face-api'
 
 export interface MemberWithPhoto {
   id: string
@@ -25,14 +24,22 @@ export type RecognitionStatus =
   | 'loading-models'
   | 'building-descriptors'
   | 'ready'
-  | 'viewfinder' // 카메라 활성화 + 실시간 감지 진행 중
+  | 'viewfinder'
   | 'error'
 
 const MODEL_URL = '/models'
-const MATCH_THRESHOLD = 0.42       // 이 이상이면 무시 (0.38→0.42 인식률 회복)
-const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 (녹색, 0.28→0.30)
-const DETECT_MIN_CONFIDENCE = 0.4  // SSD 디텍션 최소 신뢰도 (0.5→0.4 멀거나 측면 얼굴 보강)
-const DETECTION_INTERVAL_MS = 250  // 프레임 간 대기 (실시간 감지 루프)
+const MATCH_THRESHOLD = 0.42       // 이 이상이면 무시
+const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 (녹색)
+const DETECT_MIN_CONFIDENCE = 0.4  // SSD 디텍션 최소 신뢰도
+const DETECTION_INTERVAL_MS = 80   // worker 처리 중에는 자동 throttle되므로 짧게
+
+// worker → main 메시지 타입
+type WorkerOutgoing =
+  | { type: 'init-done' }
+  | { type: 'init-error'; error: string }
+  | { type: 'matcher-set' }
+  | { type: 'detect-result'; frameId: number; matches: { memberId: string; distance: number; box: { x: number; y: number; width: number; height: number } }[] }
+  | { type: 'detect-error'; frameId: number; error: string }
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')
@@ -46,15 +53,54 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const matcherRef = useRef<faceapi.FaceMatcher | null>(null)
   const membersMapRef = useRef<Map<string, MemberWithPhoto>>(new Map())
+
+  // worker 관련
+  const workerRef = useRef<Worker | null>(null)
+  const matcherReadyRef = useRef(false)
+  const frameIdRef = useRef(0)
+  const inflightFrameRef = useRef<number | null>(null)
+  const initResolverRef = useRef<{ resolve: () => void; reject: (e: Error) => void } | null>(null)
+  const matcherResolverRef = useRef<{ resolve: () => void } | null>(null)
 
   // 실시간 감지 루프 제어
   const detectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isDetectingRef = useRef(false)
   const liveActiveRef = useRef(false)
 
-  // 모델 로드 및 descriptor 빌드
+  // worker 응답 처리: 검출 결과를 누적 상태로 반영
+  const handleDetectionResult = useCallback((frameId: number, rawMatches: { memberId: string; distance: number; box: { x: number; y: number; width: number; height: number } }[]) => {
+    if (inflightFrameRef.current !== frameId) {
+      // 오래된/취소된 결과 — 정상 frame은 처리 후 inflight를 null로
+      inflightFrameRef.current = null
+      return
+    }
+    inflightFrameRef.current = null
+
+    if (!liveActiveRef.current) return
+
+    const frameMatches: MatchResult[] = []
+    for (const m of rawMatches) {
+      const member = membersMapRef.current.get(m.memberId)
+      if (!member) continue
+      frameMatches.push({ member, distance: m.distance, box: m.box })
+    }
+
+    setLiveDetections(frameMatches)
+    setAccumulatedMatches((prev) => {
+      let changed = false
+      const next = new Map(prev)
+      for (const fm of frameMatches) {
+        const existing = next.get(fm.member.id)
+        if (!existing || fm.distance < existing.distance) {
+          next.set(fm.member.id, fm)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  // worker 생성 + 모델 로드 + 매처 빌드
   useEffect(() => {
     let cancelled = false
 
@@ -63,51 +109,83 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
       setErrorMessage(null)
 
       try {
-        await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-        ])
+        const worker = new Worker(
+          new URL('../lib/face-detection-worker.ts', import.meta.url),
+          { type: 'module' }
+        )
+        workerRef.current = worker
+
+        // 통합 메시지 핸들러
+        worker.addEventListener('message', (e: MessageEvent<WorkerOutgoing>) => {
+          const msg = e.data
+          switch (msg.type) {
+            case 'init-done':
+              initResolverRef.current?.resolve()
+              initResolverRef.current = null
+              break
+            case 'init-error':
+              initResolverRef.current?.reject(new Error(msg.error))
+              initResolverRef.current = null
+              break
+            case 'matcher-set':
+              matcherResolverRef.current?.resolve()
+              matcherResolverRef.current = null
+              break
+            case 'detect-result':
+              handleDetectionResult(msg.frameId, msg.matches)
+              break
+            case 'detect-error':
+              if (inflightFrameRef.current === msg.frameId) inflightFrameRef.current = null
+              break
+          }
+        })
+
+        worker.addEventListener('error', (e) => {
+          if (initResolverRef.current) {
+            initResolverRef.current.reject(new Error(e.message || 'worker error'))
+            initResolverRef.current = null
+          }
+        })
+
+        // 모델 로드
+        await new Promise<void>((resolve, reject) => {
+          initResolverRef.current = { resolve, reject }
+          worker.postMessage({ type: 'init', modelUrl: MODEL_URL })
+        })
 
         if (cancelled) return
 
+        // 매처 빌드
         setStatus('building-descriptors')
-        const total = members.length
-        setProgress({ current: 0, total })
+        setProgress({ current: 0, total: members.length })
 
-        const labeledDescriptors: faceapi.LabeledFaceDescriptors[] = []
+        const labeled: { id: string; descriptors: number[][] }[] = []
         const skipped: MemberWithPhoto[] = []
         const memberMap = new Map<string, MemberWithPhoto>()
 
         for (let i = 0; i < members.length; i++) {
           if (cancelled) return
-
           const member = members[i]
           memberMap.set(member.id, member)
 
-          const descriptorArrays: Float32Array[] = []
-
+          let descs: number[][] = []
           if (
             member.face_descriptors &&
             member.face_descriptors.length > 0 &&
             member.face_descriptors.every((d) => d.length === 128)
           ) {
-            descriptorArrays.push(
-              ...member.face_descriptors.map((d) => new Float32Array(d))
-            )
+            descs = member.face_descriptors
           } else if (member.face_descriptor && member.face_descriptor.length === 128) {
-            descriptorArrays.push(new Float32Array(member.face_descriptor))
+            descs = [member.face_descriptor]
           }
 
-          if (descriptorArrays.length > 0) {
-            labeledDescriptors.push(
-              new faceapi.LabeledFaceDescriptors(member.id, descriptorArrays)
-            )
+          if (descs.length > 0) {
+            labeled.push({ id: member.id, descriptors: descs })
           } else {
             skipped.push(member)
           }
 
-          setProgress({ current: i + 1, total })
+          setProgress({ current: i + 1, total: members.length })
         }
 
         if (cancelled) return
@@ -115,15 +193,21 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
         membersMapRef.current = memberMap
         setSkippedMembers(skipped)
 
-        if (labeledDescriptors.length > 0) {
-          matcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, MATCH_THRESHOLD)
-        }
+        await new Promise<void>((resolve) => {
+          matcherResolverRef.current = { resolve }
+          worker.postMessage({ type: 'set-matcher', labeled, threshold: MATCH_THRESHOLD })
+        })
 
+        if (cancelled) return
+
+        matcherReadyRef.current = labeled.length > 0
         setStatus('ready')
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setStatus('error')
-          setErrorMessage('모델 로딩에 실패했습니다. 네트워크 연결을 확인하고 다시 시도해주세요.')
+          setErrorMessage(
+            `얼굴 인식 초기화에 실패했습니다. ${err instanceof Error ? err.message : ''}`
+          )
         }
       }
     }
@@ -131,11 +215,22 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     if (members.length > 0) {
       init()
     } else {
-      setStatus('ready')
+      // sync setState in effect body는 lint 규칙에 걸리므로 microtask로 디퍼
+      queueMicrotask(() => {
+        if (!cancelled) setStatus('ready')
+      })
     }
 
-    return () => { cancelled = true }
-  }, [members])
+    return () => {
+      cancelled = true
+      const w = workerRef.current
+      workerRef.current = null
+      w?.terminate()
+      initResolverRef.current = null
+      matcherResolverRef.current = null
+      matcherReadyRef.current = false
+    }
+  }, [members, handleDetectionResult])
 
   // 스트림만 종료
   const stopStream = useCallback(() => {
@@ -157,60 +252,39 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     }
   }, [])
 
-  // 실시간 감지 루프 시작
+  // 실시간 감지 루프: 비디오 → ImageBitmap → worker.postMessage(transfer)
   const runDetectionLoop = useCallback(() => {
     const tick = async () => {
       if (!liveActiveRef.current) return
       const video = videoRef.current
-      if (!video || video.readyState < 2 || !matcherRef.current) {
+      const worker = workerRef.current
+
+      if (!video || video.readyState < 2 || !worker || !matcherReadyRef.current) {
         detectionTimeoutRef.current = setTimeout(tick, 300)
         return
       }
-      if (isDetectingRef.current) {
-        detectionTimeoutRef.current = setTimeout(tick, 100)
+      // worker가 이전 프레임 처리 중이면 짧게 재시도
+      if (inflightFrameRef.current !== null) {
+        detectionTimeoutRef.current = setTimeout(tick, 60)
         return
       }
-      isDetectingRef.current = true
+
       try {
-        const detections = await faceapi
-          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: DETECT_MIN_CONFIDENCE }))
-          .withFaceLandmarks()
-          .withFaceDescriptors()
-
-        if (!liveActiveRef.current) return
-
-        const frameMatches: MatchResult[] = []
-        for (const detection of detections) {
-          const box = detection.detection.box
-          const bestMatch = matcherRef.current.findBestMatch(detection.descriptor)
-          if (bestMatch.label === 'unknown') continue
-          const member = membersMapRef.current.get(bestMatch.label)
-          if (!member) continue
-          frameMatches.push({
-            member,
-            distance: bestMatch.distance,
-            box: { x: box.x, y: box.y, width: box.width, height: box.height },
-          })
+        const bitmap = await createImageBitmap(video)
+        if (!liveActiveRef.current) {
+          bitmap.close()
+          return
         }
-
-        setLiveDetections(frameMatches)
-        setAccumulatedMatches((prev) => {
-          let changed = false
-          const next = new Map(prev)
-          for (const m of frameMatches) {
-            const existing = next.get(m.member.id)
-            if (!existing || m.distance < existing.distance) {
-              next.set(m.member.id, m)
-              changed = true
-            }
-          }
-          return changed ? next : prev
-        })
+        const frameId = ++frameIdRef.current
+        inflightFrameRef.current = frameId
+        worker.postMessage(
+          { type: 'detect', frame: bitmap, frameId, minConfidence: DETECT_MIN_CONFIDENCE },
+          [bitmap] // zero-copy transfer
+        )
       } catch {
-        // 단일 프레임 실패는 무시하고 다음 틱 진행
-      } finally {
-        isDetectingRef.current = false
+        // bitmap 생성 실패 시 다음 틱으로 넘어감
       }
+
       if (liveActiveRef.current) {
         detectionTimeoutRef.current = setTimeout(tick, DETECTION_INTERVAL_MS)
       }
@@ -235,7 +309,6 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           v.play()
           setVideoSize({ width: v.videoWidth, height: v.videoHeight })
           setStatus('viewfinder')
-          // 실시간 감지 루프 시작
           liveActiveRef.current = true
           runDetectionLoop()
         }
@@ -262,12 +335,11 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     await startCamera(newMode)
   }, [facingMode, stopStream, stopLiveDetection, startCamera])
 
-  // 누적된 인식 결과 초기화
   const clearMatches = useCallback(() => {
     setAccumulatedMatches(new Map())
   }, [])
 
-  // 언마운트 시 정리
+  // 언마운트 정리
   useEffect(() => {
     return () => {
       stopLiveDetection()
@@ -275,7 +347,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     }
   }, [stopStream, stopLiveDetection])
 
-  // 누적 결과를 자동/수동으로 분류 (메모이즈)
+  // 누적 결과를 자동/수동으로 분류
   const { autoMatches, manualMatches } = useMemo(() => {
     const auto: MatchResult[] = []
     const manual: MatchResult[] = []
