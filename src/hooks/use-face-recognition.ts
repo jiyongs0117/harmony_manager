@@ -29,8 +29,9 @@ export type RecognitionStatus =
   | 'error'
 
 const MODEL_URL = '/models'
-const MATCH_THRESHOLD = 0.38       // 이 이상이면 무시
-const AUTO_CHECK_THRESHOLD = 0.28  // 이 이하면 자동 출석 (녹색)
+const MATCH_THRESHOLD = 0.42       // 이 이상이면 무시 (0.38→0.42 인식률 회복)
+const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 (녹색, 0.28→0.30)
+const DETECT_MIN_CONFIDENCE = 0.4  // SSD 디텍션 최소 신뢰도 (0.5→0.4 멀거나 측면 얼굴 보강)
 const DETECTION_INTERVAL_MS = 250  // 프레임 간 대기 (실시간 감지 루프)
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
@@ -172,7 +173,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
       isDetectingRef.current = true
       try {
         const detections = await faceapi
-          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: DETECT_MIN_CONFIDENCE }))
           .withFaceLandmarks()
           .withFaceDescriptors()
 

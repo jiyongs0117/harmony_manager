@@ -25,7 +25,7 @@ interface VideoTransform {
   offsetY: number
 }
 
-const AUTO_CHECK_THRESHOLD = 0.28
+const AUTO_CHECK_THRESHOLD = 0.30
 
 export function FaceRecognition({ members, activeEvents = [], initialCheckedMemberIds = [] }: FaceRecognitionProps) {
   const router = useRouter()
@@ -271,9 +271,11 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
           </div>
         )}
 
-        {/* ── 실시간 인식 화면 ── */}
-        {status === 'viewfinder' && (
-          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+        {/* ── 실시간 인식 화면 (video는 항상 마운트되어야 startCamera가 동작함) ── */}
+        <div className={cn(
+          'flex-1 flex flex-col overflow-hidden min-h-0',
+          status !== 'viewfinder' && 'hidden'
+        )}>
 
             {/* 라이브 비디오 + 얼굴 박스 오버레이 */}
             <div ref={videoContainerRef} className="relative bg-black flex-shrink-0" style={{ height: '50dvh' }}>
@@ -391,8 +393,7 @@ export function FaceRecognition({ members, activeEvents = [], initialCheckedMemb
                 </button>
               </div>
             )}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* ── 단원 사진 뷰어 팝업 ── */}
