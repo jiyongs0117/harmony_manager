@@ -5,6 +5,35 @@
 // - 무거운 SSD 검출 + 디스크립터 + 매칭은 모두 이 worker에서 수행
 import * as faceapi from '@vladmandic/face-api'
 
+// Worker는 browser도 nodejs도 아니라서 face-api 자동 환경 감지가 실패함
+// (getEnv - environment is not defined). Worker용 globals로 env를 명시 설정.
+function setupWorkerEnv() {
+  const workerEnv = {
+    Canvas: OffscreenCanvas as unknown as typeof HTMLCanvasElement,
+    CanvasRenderingContext2D:
+      (typeof OffscreenCanvasRenderingContext2D !== 'undefined'
+        ? OffscreenCanvasRenderingContext2D
+        : (class {} as unknown)) as typeof CanvasRenderingContext2D,
+    Image:
+      (typeof ImageBitmap !== 'undefined'
+        ? ImageBitmap
+        : (class {} as unknown)) as typeof HTMLImageElement,
+    ImageData: ImageData,
+    Video: class {} as unknown as typeof HTMLVideoElement,
+    createCanvasElement: () =>
+      new OffscreenCanvas(1, 1) as unknown as HTMLCanvasElement,
+    createImageElement: () => {
+      throw new Error('createImageElement not available in worker')
+    },
+    createVideoElement: () => {
+      throw new Error('createVideoElement not available in worker')
+    },
+    fetch: (url: string, init?: RequestInit) => self.fetch(url, init),
+    readFile: () => Promise.reject(new Error('readFile not available in worker')),
+  }
+  faceapi.env.setEnv(workerEnv as unknown as faceapi.Environment)
+}
+
 let matcher: faceapi.FaceMatcher | null = null
 
 type Box = { x: number; y: number; width: number; height: number }
@@ -29,6 +58,9 @@ self.addEventListener('message', async (e: MessageEvent<IncomingMessage>) => {
 
   if (msg.type === 'init') {
     try {
+      // 모델 로드 전에 Worker용 env를 등록 (필수)
+      setupWorkerEnv()
+
       // face-api는 첫 호출 시 tfjs 백엔드를 자동 초기화 (Worker에서 WebGL 가능 시 자동 사용,
       // 미지원 환경에서는 CPU로 폴백)
       await Promise.all([
