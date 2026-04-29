@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import * as faceapi from '@vladmandic/face-api'
 
 export interface MemberWithPhoto {
@@ -25,23 +25,21 @@ export type RecognitionStatus =
   | 'loading-models'
   | 'building-descriptors'
   | 'ready'
-  | 'viewfinder'  // 카메라 활성화, 촬영 대기
-  | 'capturing'   // 사진 분석 중
-  | 'results'     // 결과 표시
+  | 'viewfinder' // 카메라 활성화 + 실시간 감지 진행 중
   | 'error'
 
 const MODEL_URL = '/models'
-const MATCH_THRESHOLD = 0.38       // 이 이상이면 무시 (0.45→0.38 오인식 방지)
-const AUTO_CHECK_THRESHOLD = 0.28  // 이 이하면 자동 출석 (녹색, 0.30→0.28 정확도 향상)
+const MATCH_THRESHOLD = 0.38       // 이 이상이면 무시
+const AUTO_CHECK_THRESHOLD = 0.28  // 이 이하면 자동 출석 (녹색)
+const DETECTION_INTERVAL_MS = 250  // 프레임 간 대기 (실시간 감지 루프)
 
 export function useFaceRecognition(members: MemberWithPhoto[]) {
   const [status, setStatus] = useState<RecognitionStatus>('idle')
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const [skippedMembers, setSkippedMembers] = useState<MemberWithPhoto[]>([])
-  const [autoMatches, setAutoMatches] = useState<MatchResult[]>([])
-  const [manualMatches, setManualMatches] = useState<MatchResult[]>([])
-  const [resultImageUrl, setResultImageUrl] = useState<string | null>(null)
-  const [capturedImageSize, setCapturedImageSize] = useState<{ width: number; height: number } | null>(null)
+  const [accumulatedMatches, setAccumulatedMatches] = useState<Map<string, MatchResult>>(new Map())
+  const [liveDetections, setLiveDetections] = useState<MatchResult[]>([])
+  const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
 
@@ -49,6 +47,11 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
   const streamRef = useRef<MediaStream | null>(null)
   const matcherRef = useRef<faceapi.FaceMatcher | null>(null)
   const membersMapRef = useRef<Map<string, MemberWithPhoto>>(new Map())
+
+  // 실시간 감지 루프 제어
+  const detectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isDetectingRef = useRef(false)
+  const liveActiveRef = useRef(false)
 
   // 모델 로드 및 descriptor 빌드
   useEffect(() => {
@@ -133,7 +136,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     return () => { cancelled = true }
   }, [members])
 
-  // 스트림만 종료 (상태 변경 없음)
+  // 스트림만 종료
   const stopStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
@@ -142,6 +145,76 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
+  }, [])
+
+  // 실시간 감지 루프 종료
+  const stopLiveDetection = useCallback(() => {
+    liveActiveRef.current = false
+    if (detectionTimeoutRef.current) {
+      clearTimeout(detectionTimeoutRef.current)
+      detectionTimeoutRef.current = null
+    }
+  }, [])
+
+  // 실시간 감지 루프 시작
+  const runDetectionLoop = useCallback(() => {
+    const tick = async () => {
+      if (!liveActiveRef.current) return
+      const video = videoRef.current
+      if (!video || video.readyState < 2 || !matcherRef.current) {
+        detectionTimeoutRef.current = setTimeout(tick, 300)
+        return
+      }
+      if (isDetectingRef.current) {
+        detectionTimeoutRef.current = setTimeout(tick, 100)
+        return
+      }
+      isDetectingRef.current = true
+      try {
+        const detections = await faceapi
+          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+          .withFaceLandmarks()
+          .withFaceDescriptors()
+
+        if (!liveActiveRef.current) return
+
+        const frameMatches: MatchResult[] = []
+        for (const detection of detections) {
+          const box = detection.detection.box
+          const bestMatch = matcherRef.current.findBestMatch(detection.descriptor)
+          if (bestMatch.label === 'unknown') continue
+          const member = membersMapRef.current.get(bestMatch.label)
+          if (!member) continue
+          frameMatches.push({
+            member,
+            distance: bestMatch.distance,
+            box: { x: box.x, y: box.y, width: box.width, height: box.height },
+          })
+        }
+
+        setLiveDetections(frameMatches)
+        setAccumulatedMatches((prev) => {
+          let changed = false
+          const next = new Map(prev)
+          for (const m of frameMatches) {
+            const existing = next.get(m.member.id)
+            if (!existing || m.distance < existing.distance) {
+              next.set(m.member.id, m)
+              changed = true
+            }
+          }
+          return changed ? next : prev
+        })
+      } catch {
+        // 단일 프레임 실패는 무시하고 다음 틱 진행
+      } finally {
+        isDetectingRef.current = false
+      }
+      if (liveActiveRef.current) {
+        detectionTimeoutRef.current = setTimeout(tick, DETECTION_INTERVAL_MS)
+      }
+    }
+    tick()
   }, [])
 
   const startCamera = useCallback(async (mode: 'user' | 'environment' = 'environment') => {
@@ -156,138 +229,63 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
         streamRef.current = stream
         setFacingMode(mode)
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play()
+          const v = videoRef.current
+          if (!v) return
+          v.play()
+          setVideoSize({ width: v.videoWidth, height: v.videoHeight })
           setStatus('viewfinder')
+          // 실시간 감지 루프 시작
+          liveActiveRef.current = true
+          runDetectionLoop()
         }
       }
     } catch {
       setErrorMessage('카메라 권한이 필요합니다. 브라우저 설정에서 카메라 접근을 허용해주세요.')
     }
-  }, [])
+  }, [runDetectionLoop])
 
   const stopCamera = useCallback(() => {
+    stopLiveDetection()
     stopStream()
-    setAutoMatches([])
-    setManualMatches([])
-    setResultImageUrl(null)
-    setCapturedImageSize(null)
+    setLiveDetections([])
+    setAccumulatedMatches(new Map())
+    setVideoSize(null)
     setStatus('ready')
-  }, [stopStream])
+  }, [stopStream, stopLiveDetection])
 
   const flipCamera = useCallback(async () => {
+    stopLiveDetection()
     stopStream()
+    setLiveDetections([])
     const newMode = facingMode === 'user' ? 'environment' : 'user'
     await startCamera(newMode)
-  }, [facingMode, stopStream, startCamera])
+  }, [facingMode, stopStream, stopLiveDetection, startCamera])
 
-  // canvas → 매칭 결과 공통 처리
-  const detectOnCanvas = useCallback(async (canvas: HTMLCanvasElement) => {
-    const detections = await faceapi
-      .detectAllFaces(canvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
-      .withFaceLandmarks()
-      .withFaceDescriptors()
-
-    const newAutoMatches: MatchResult[] = []
-    const newManualMatches: MatchResult[] = []
-
-    for (const detection of detections) {
-      const box = detection.detection.box
-      if (!matcherRef.current) continue
-      const bestMatch = matcherRef.current.findBestMatch(detection.descriptor)
-      if (bestMatch.label === 'unknown') continue
-      const member = membersMapRef.current.get(bestMatch.label)
-      if (!member) continue
-
-      const matchResult: MatchResult = {
-        member,
-        distance: bestMatch.distance,
-        box: { x: box.x, y: box.y, width: box.width, height: box.height },
-      }
-      if (bestMatch.distance <= AUTO_CHECK_THRESHOLD) newAutoMatches.push(matchResult)
-      else newManualMatches.push(matchResult)
-    }
-    return { newAutoMatches, newManualMatches }
+  // 누적된 인식 결과 초기화
+  const clearMatches = useCallback(() => {
+    setAccumulatedMatches(new Map())
   }, [])
-
-  // 사진 촬영 후 전체 인식
-  const captureAndRecognize = useCallback(async () => {
-    const video = videoRef.current
-    if (!video || video.readyState < 2) return
-
-    setStatus('capturing')
-
-    const captureCanvas = document.createElement('canvas')
-    captureCanvas.width = video.videoWidth
-    captureCanvas.height = video.videoHeight
-    const ctx = captureCanvas.getContext('2d')
-    if (!ctx) { setStatus('viewfinder'); return }
-    ctx.drawImage(video, 0, 0)
-    stopStream()
-
-    try {
-      const { newAutoMatches, newManualMatches } = await detectOnCanvas(captureCanvas)
-      setAutoMatches(newAutoMatches)
-      setManualMatches(newManualMatches)
-      setCapturedImageSize({ width: captureCanvas.width, height: captureCanvas.height })
-      setResultImageUrl(captureCanvas.toDataURL('image/jpeg', 0.92))
-      setStatus('results')
-    } catch {
-      setStatus('error')
-      setErrorMessage('얼굴 인식 중 오류가 발생했습니다. 다시 시도해주세요.')
-    }
-  }, [stopStream, detectOnCanvas])
-
-  // 사진첩에서 파일 선택 후 인식
-  const recognizeFromFile = useCallback(async (file: File) => {
-    setStatus('capturing')
-    stopStream()
-
-    try {
-      // 파일 → Image 로드 (브라우저가 EXIF 방향 자동 처리)
-      const objectUrl = URL.createObjectURL(file)
-      const img = new Image()
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve()
-        img.onerror = reject
-        img.src = objectUrl
-      })
-      URL.revokeObjectURL(objectUrl)
-
-      // 너무 큰 사진은 리사이즈 (face-api.js 성능)
-      const MAX_DIM = 1920
-      const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight))
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.round(img.naturalWidth * scale)
-      canvas.height = Math.round(img.naturalHeight * scale)
-      const ctx = canvas.getContext('2d')
-      if (!ctx) { setStatus('ready'); return }
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-
-      const { newAutoMatches, newManualMatches } = await detectOnCanvas(canvas)
-      setAutoMatches(newAutoMatches)
-      setManualMatches(newManualMatches)
-      setCapturedImageSize({ width: canvas.width, height: canvas.height })
-      setResultImageUrl(canvas.toDataURL('image/jpeg', 0.92))
-      setStatus('results')
-    } catch {
-      setStatus('error')
-      setErrorMessage('이미지 인식 중 오류가 발생했습니다. 다시 시도해주세요.')
-    }
-  }, [stopStream, detectOnCanvas])
-
-  // 다시 찍기
-  const retake = useCallback(() => {
-    setAutoMatches([])
-    setManualMatches([])
-    setResultImageUrl(null)
-    setCapturedImageSize(null)
-    startCamera(facingMode)
-  }, [facingMode, startCamera])
 
   // 언마운트 시 정리
   useEffect(() => {
-    return () => { stopStream() }
-  }, [stopStream])
+    return () => {
+      stopLiveDetection()
+      stopStream()
+    }
+  }, [stopStream, stopLiveDetection])
+
+  // 누적 결과를 자동/수동으로 분류 (메모이즈)
+  const { autoMatches, manualMatches } = useMemo(() => {
+    const auto: MatchResult[] = []
+    const manual: MatchResult[] = []
+    for (const m of accumulatedMatches.values()) {
+      if (m.distance <= AUTO_CHECK_THRESHOLD) auto.push(m)
+      else manual.push(m)
+    }
+    auto.sort((a, b) => a.distance - b.distance)
+    manual.sort((a, b) => a.distance - b.distance)
+    return { autoMatches: auto, manualMatches: manual }
+  }, [accumulatedMatches])
 
   return {
     status,
@@ -295,15 +293,13 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
     skippedMembers,
     autoMatches,
     manualMatches,
-    resultImageUrl,
-    capturedImageSize,
+    liveDetections,
+    videoSize,
     videoRef,
     startCamera,
     stopCamera,
     flipCamera,
-    captureAndRecognize,
-    recognizeFromFile,
-    retake,
+    clearMatches,
     errorMessage,
     facingMode,
   }
