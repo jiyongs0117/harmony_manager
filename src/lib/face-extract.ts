@@ -1,18 +1,32 @@
 'use client'
 
-import * as faceapi from '@vladmandic/face-api'
+// face-api는 모듈 최상단에서 import하면 Next.js SSR 시 'this.util.TextEncoder is not a constructor'
+// 에러가 남 (face-api 내부 Node 빌드 분기가 Node SSR 컨텍스트에서 평가됨). 타입만 정적으로
+// 가져오고 런타임은 클라이언트 호출 시점에 동적 import로 로드.
+import type * as FaceApi from '@vladmandic/face-api'
 
 const MODEL_URL = '/models'
+
+let faceapiPromise: Promise<typeof FaceApi> | null = null
 let modelsLoaded = false
 
-async function ensureModels() {
-  if (modelsLoaded) return
+function loadFaceapi(): Promise<typeof FaceApi> {
+  if (!faceapiPromise) {
+    faceapiPromise = import('@vladmandic/face-api')
+  }
+  return faceapiPromise
+}
+
+async function ensureModels(): Promise<typeof FaceApi> {
+  const faceapi = await loadFaceapi()
+  if (modelsLoaded) return faceapi
   await Promise.all([
     faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
     faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
     faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
   ])
   modelsLoaded = true
+  return faceapi
 }
 
 export type PhotoQuality = {
@@ -31,7 +45,7 @@ export type ExtractResult =
 export async function extractDescriptorFromUrl(
   url: string
 ): Promise<ExtractResult> {
-  await ensureModels()
+  const faceapi = await ensureModels()
 
   return new Promise((resolve) => {
     const img = new Image()
@@ -48,7 +62,6 @@ export async function extractDescriptorFromUrl(
           return
         }
 
-        // 품질 분석
         const quality = analyzePhotoQuality(img, detection)
 
         resolve({
@@ -67,13 +80,10 @@ export async function extractDescriptorFromUrl(
 
 /**
  * 얼굴 검출 결과를 바탕으로 사진 품질을 분석
- * - 얼굴 크기 비율 (너무 작으면 원거리 인식 품질 저하)
- * - 검출 신뢰도 (낮으면 흐리거나 조명 불량)
- * - 얼굴 각도 (측면 사진이면 정면 매칭 불리)
  */
 function analyzePhotoQuality(
   img: HTMLImageElement,
-  detection: faceapi.WithFaceDescriptor<faceapi.WithFaceLandmarks<{ detection: faceapi.FaceDetection }>>
+  detection: FaceApi.WithFaceDescriptor<FaceApi.WithFaceLandmarks<{ detection: FaceApi.FaceDetection }>>
 ): PhotoQuality {
   const quality: PhotoQuality = { level: 'good', warnings: [] }
 
@@ -88,7 +98,7 @@ function analyzePhotoQuality(
     quality.warnings.push('얼굴이 너무 작아요. 더 가까이서 찍은 사진을 사용하면 인식률이 높아져요.')
   }
 
-  // 2. 검출 신뢰도 체크 (0.75→0.85 강화)
+  // 2. 검출 신뢰도 체크
   const score = detection.detection.score
   if (score < 0.85) {
     quality.level = 'warning'
@@ -96,7 +106,6 @@ function analyzePhotoQuality(
   }
 
   // 3. 얼굴 각도 체크 (랜드마크 기반)
-  //    좌안(36-41), 우안(42-47) 중심과 코끝(30)의 수평 편차로 측면 여부 추정
   const pts = detection.landmarks.positions
   const leftEyeX  = (pts[36].x + pts[37].x + pts[38].x + pts[39].x + pts[40].x + pts[41].x) / 6
   const rightEyeX = (pts[42].x + pts[43].x + pts[44].x + pts[45].x + pts[46].x + pts[47].x) / 6
