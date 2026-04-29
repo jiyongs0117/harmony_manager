@@ -147,10 +147,11 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
           }
         })
 
-        // 모델 로드
+        // 모델 로드 (Worker fetch는 절대 URL이 필요하므로 origin 기준으로 절대화)
+        const absoluteModelUrl = new URL(MODEL_URL, window.location.origin).href
         await new Promise<void>((resolve, reject) => {
           initResolverRef.current = { resolve, reject }
-          worker.postMessage({ type: 'init', modelUrl: MODEL_URL })
+          worker.postMessage({ type: 'init', modelUrl: absoluteModelUrl })
         })
 
         if (cancelled) return
