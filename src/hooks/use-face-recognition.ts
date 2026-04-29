@@ -135,6 +135,7 @@ export function useFaceRecognition(members: MemberWithPhoto[]) {
               handleDetectionResult(msg.frameId, msg.matches)
               break
             case 'detect-error':
+              console.warn('[face-worker] detect error:', msg.error)
               if (inflightFrameRef.current === msg.frameId) inflightFrameRef.current = null
               break
           }

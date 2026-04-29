@@ -101,10 +101,19 @@ self.addEventListener('message', async (e: MessageEvent<IncomingMessage>) => {
         return
       }
 
-      // ImageBitmap을 face-api에 전달 (tf.browser.fromPixels가 ImageBitmap 지원)
+      // face-api의 awaitMediaLoaded는 입력이 Canvas instance가 아니면 addEventListener를 호출함.
+      // ImageBitmap엔 addEventListener가 없어 실패하므로, OffscreenCanvas에 그려 전달.
+      const canvas = new OffscreenCanvas(frame.width, frame.height)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        post({ type: 'detect-result', frameId, matches: [] })
+        return
+      }
+      ctx.drawImage(frame, 0, 0)
+
       const detections = await faceapi
         .detectAllFaces(
-          frame as unknown as faceapi.TNetInput,
+          canvas as unknown as faceapi.TNetInput,
           new faceapi.SsdMobilenetv1Options({ minConfidence })
         )
         .withFaceLandmarks()
