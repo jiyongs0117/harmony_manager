@@ -28,7 +28,7 @@ export type RecognitionStatus =
   | 'error'
 
 const MODEL_URL = '/models'
-const MATCH_THRESHOLD = 0.42       // 이 이상이면 무시
+const MATCH_THRESHOLD = 0.38       // 이 이상이면 무시
 const AUTO_CHECK_THRESHOLD = 0.30  // 이 이하면 자동 출석 (녹색)
 const DETECT_MIN_CONFIDENCE = 0.4  // SSD 디텍션 최소 신뢰도
 const DETECTION_INTERVAL_MS = 80   // worker 처리 중에는 자동 throttle되므로 짧게
